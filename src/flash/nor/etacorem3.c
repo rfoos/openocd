@@ -38,6 +38,9 @@
 #include "config.h"
 #endif
 
+#include <stdint.h>
+#include <stdbool.h>
+
 #include "imp.h"
 #include "helper/binarybuffer.h"
 #include "target/algorithm.h"
@@ -51,25 +54,86 @@
  *
  */
 
-/*
- * typedef enum {
- *      etacorem3_v1,
- *      etacorem3_v2,
- * } etacorem3_variant;
+#define MAGIC_ADDR_M3ETA    (0x0001FFF0)
+#define MAGIC_ADDR_SUBZ     (0x1001FFF0)
+
+#if 0
+/**
+ * Load magic numbers into sram and bootrom will use sram vector table.
  */
+static const uint32_t magic_numbers[] = {
+	0xc001c0de,
+	0xc001c0de,
+	0xdeadbeef,
+	0xc369a517,
+};
+#endif
+
+#define SRAM_START_M3ETA    (0x00010000)
+#define SRAM_LENGTH_M3ETA   (0x00010000)
+#define SRAM_START_SUBZ     (0x10000000)
+#define SRAM_LENGTH_SUBZ    (0x00020000)
+#define FLASH_START_SUBZ    (0x01000000)
+#define FLASH_LENGTH_SUBZ   (0x00100000)
+
+#define SRAM_PARM_M3ETA     (0x00001000)
+#define SRAM_PARM_SUBZ      (0x10001000)
+
+#define ETA_COMMON_SRAM_MAX_SUBZ  (0x10020000)
+#define ETA_COMMON_SRAM_BASE_SUBZ (0x10010000)
+#define ETA_COMMON_SRAM_SIZE_SUBZ \
+	(ETA_COMMON_SRAM_MAX_SUBZ - ETA_COMMON_SRAM_BASE_SUBZ)
+
+#define ETA_COMMON_SRAM_MAX_M3ETA  (0x00020000)
+#define ETA_COMMON_SRAM_BASE_M3ETA (0x00010000)
+#define ETA_COMMON_SRAM_SIZE_M3ETA \
+	(ETA_COMMON_SRAM_MAX_M3ETA - ETA_COMMON_SRAM_BASE_M3ETA)
+
+#define ETA_COMMON_FLASH_MAX_SUBZ  0x01080000
+#define ETA_COMMON_FLASH_BASE_SUBZ 0x01000000
+#define ETA_COMMON_FLASH_SIZE_SUBZ \
+	(ETA_COMMON_FLASH_MAX_SUBZ - ETA_COMMON_FLASH_BASE_SUBZ)
+#define ETA_COMMON_FLASH_PAGE_SIZE_SUBZ 4096
+
+/**
+ * SRAM parameters to call helper functions.
+ */
+typedef struct {
+	uint32_t ui32FlashAddress;	/**<  */
+	uint32_t ui32Length;	/**<  */
+	uint32_t ui32RC;/**<  */
+} eta_flash_interface_t;
+
+/**
+ * Chip versions supported by this driver.
+ */
+typedef enum {
+	etacore_m3eta,
+	etacore_subzero,
+} etacorem3_variant;
 
 /**
  * ETA flash bank info from probe.
  */
-struct etacorem3_flash_bank {
-	/* etacorem3_variant variant; */
+typedef struct etacorem3_flash_bank_t {
+	etacorem3_variant variant;
 
 	/* flash geometry */
 	uint32_t num_pages;	/**< Number of flash pages.  */
 	uint32_t pagesize;	/**< Flash Page Size  */
 
 	bool probed;	/**< Flash bank has been probed. */
-};
+} *etacorem3_flash_bank_p;
+
+/*
+ * Jump table for subz.
+ */
+#define BootROM_FlashWSHelper   (0x0000009d)
+#define BootROM_ui32LoadHelper  (0x000000e5)
+#define BootROM_ui32StoreHelper (0x000000fd)
+#define BootROM_flash_ref_cell_erase    (0x00000285)
+#define BootROM_flash_erase             (0x00000385)
+#define BootROM_flash_program   (0x000004C9)
 
 /*
  * openocd exec commands
@@ -84,7 +148,7 @@ struct etacorem3_flash_bank {
 static int etacorem3_mass_erase(struct flash_bank *bank)
 {
 	struct target *target = NULL;
-	struct etacorem3_flash_bank *etacorem3_info = NULL;
+	struct etacorem3_flash_bank_t *etacorem3_info = NULL;
 	int retval = ERROR_OK;
 
 	etacorem3_info = bank->driver_priv;
@@ -95,7 +159,7 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
-	if (etacorem3_info->probed == 0) {
+	if (etacorem3_info->probed == false) {
 		LOG_ERROR("Target not probed");
 		return ERROR_FLASH_BANK_NOT_PROBED;
 	}
@@ -120,7 +184,7 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
  */
 static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 {
-	struct etacorem3_flash_bank *etacorem3_info = bank->driver_priv;
+	struct etacorem3_flash_bank_t *etacorem3_info = bank->driver_priv;
 	/* struct target *target = bank->target; */
 	uint32_t retval = ERROR_OK;
 
@@ -129,7 +193,7 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
-	if (etacorem3_info->probed == 0) {
+	if (etacorem3_info->probed == false) {
 		LOG_ERROR("Target not probed");
 		return ERROR_FLASH_BANK_NOT_PROBED;
 	}
@@ -256,7 +320,7 @@ static int etacorem3_protect_check(struct flash_bank *bank)
  */
 static int etacorem3_probe(struct flash_bank *bank)
 {
-	struct etacorem3_flash_bank *etacorem3_info = bank->driver_priv;
+	struct etacorem3_flash_bank_t *etacorem3_info = bank->driver_priv;
 
 	if (!etacorem3_info->probed)
 		LOG_INFO("Probing part.");
@@ -316,7 +380,7 @@ static int get_etacorem3_info(struct flash_bank *bank, char *buf, int buf_size)
  */
 FLASH_BANK_COMMAND_HANDLER(etacorem3_flash_bank_command)
 {
-	struct etacorem3_flash_bank *etacorem3_info;
+	struct etacorem3_flash_bank_t *etacorem3_info;
 
 	if (CMD_ARGC < 6)
 		return ERROR_COMMAND_SYNTAX_ERROR;
