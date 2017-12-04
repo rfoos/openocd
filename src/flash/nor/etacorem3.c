@@ -96,6 +96,31 @@ static const uint32_t magic_numbers[] = {
 #define ETA_COMMON_FLASH_PAGE_SIZE_SUBZ 4096
 
 /**
+@verbatim
+Conceptual 64-bit Peripheral ID
+        PID3                    PID2                    PID1                    PID0
+7 |  |  |  |  |  |  |0 |7 |  |  |  |  |  |  | 0|7 |  |  |  |  |  |  | 0|7 |  |  |  |  |  |  | 0|
+31|  |  |28|27|  |  |24|23|  |  |20|19|18|  |  |  |  |  |12|11|  |  |  |  |  |  |  |  |  |  | 0|
+  RevAnd      Customer   Revision    ^      JEP106 ID Code           PartNumber
+                                     |Uses JEP 106 ID
+ARM Debug Interface Architecture Specification ADIv5.0 to ADIv5.2
+@endverbatim
+*/
+
+/* Jedec (Debug) Registers to ID silicon/bootrom version. */
+
+#define REG_JEDEC_PID0             (0xF0000FE0)
+#define REG_JEDEC_PID1             (0xF0000FE4)
+#define REG_JEDEC_PID2             (0xF0000FE8)
+#define REG_JEDEC_PID3             (0xF0000FEC)
+
+typedef union {
+	uint8_t pids[4];
+	uint32_t jedec;
+} jedec_pid_container;
+
+
+/**
  * SRAM parameters to call helper functions.
  */
 typedef struct {
@@ -122,6 +147,9 @@ typedef struct etacorem3_flash_bank_t {
 	uint32_t num_pages;	/**< Number of flash pages.  */
 	uint32_t pagesize;	/**< Flash Page Size  */
 
+	/* chip info */
+	uint32_t jedec;
+
 	bool probed;	/**< Flash bank has been probed. */
 } *etacorem3_flash_bank_p;
 
@@ -136,23 +164,19 @@ typedef struct etacorem3_flash_bank_t {
 #define BootROM_flash_program   (0x000004C9)
 
 /*
- * openocd exec commands
+ * Utilities
  */
 
 /**
- * name: etacorem3_mass_erase
- * @param bank Pointer to the flash bank descriptor.
- * @return retval
- *
+ * Read Jedec PID 0-3.
+ * @param bank
+ * @returns success is 32 bit pids.
+ * @returns failure is 0
  */
-static int etacorem3_mass_erase(struct flash_bank *bank)
+static int get_jedec_pid03(struct flash_bank *bank)
 {
-	struct target *target = NULL;
-	struct etacorem3_flash_bank_t *etacorem3_info = NULL;
-	int retval = ERROR_OK;
-
-	etacorem3_info = bank->driver_priv;
-	target = bank->target;
+	struct target *target = bank->target;
+	struct etacorem3_flash_bank_t *etacorem3_info = bank->driver_priv;
 
 	if (target->state != TARGET_HALTED) {
 		LOG_ERROR("Target not halted");
@@ -163,6 +187,45 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 		LOG_ERROR("Target not probed");
 		return ERROR_FLASH_BANK_NOT_PROBED;
 	}
+
+	jedec_pid_container pid03;
+	for (int i= 0,addr= REG_JEDEC_PID0; i < 4; i++,addr+= 4) {
+		int retval = target_read_u8(bank->target, addr, &pid03.pids[i]);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("JEDEC PID%i not readable", i);
+			return 0;
+		}
+	}
+	return pid03.jedec;
+}
+
+
+/*
+ * openocd exec commands
+ */
+
+#define TARGET_HALTED_AND_PROBED(target, info) { \
+		if (target->state != TARGET_HALTED) { \
+			LOG_ERROR("Target not halted"); \
+			return ERROR_TARGET_NOT_HALTED; \
+		} \
+		if (info->probed == false) { \
+			LOG_ERROR("Target not probed"); \
+			return ERROR_FLASH_BANK_NOT_PROBED; }}
+
+/**
+ * Mass erase flash bank.
+ * @param bank Pointer to the flash bank descriptor.
+ * @return retval
+ *
+ */
+static int etacorem3_mass_erase(struct flash_bank *bank)
+{
+	struct target *target = bank->target;
+	struct etacorem3_flash_bank_t *etacorem3_info = bank->driver_priv;
+	int retval = ERROR_OK;
+
+	TARGET_HALTED_AND_PROBED(target, etacorem3_info);
 
 	/*
 	 * Erase the main array.
@@ -327,7 +390,8 @@ static int etacorem3_probe(struct flash_bank *bank)
 
 	/* etacorem3_build_sector_list(bank); */
 	etacorem3_info->probed = true;
-
+	/* Load extra info. */
+	etacorem3_info->jedec = get_jedec_pid03(bank);
 	return ERROR_OK;
 }
 
