@@ -40,10 +40,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "imp.h"
-#include <helper/binarybuffer.h>
-#include <target/algorithm.h>
-#include <target/armv7m.h>
 
 #include "imp.h"
 #include "helper/binarybuffer.h"
@@ -58,30 +54,10 @@
  *
  */
 
+/* SRAM Address for magic numbers. */
+
 #define MAGIC_ADDR_M3ETA    (0x0001FFF0)
 #define MAGIC_ADDR_SUBZ     (0x1001FFF0)
-
-#if 0
-/**
- * Load magic numbers into sram and bootrom will use sram vector table.
- */
-static const uint32_t magic_numbers[] = {
-	0xc001c0de,
-	0xc001c0de,
-	0xdeadbeef,
-	0xc369a517,
-};
-#endif
-
-#define SRAM_START_M3ETA    (0x00010000)
-#define SRAM_LENGTH_M3ETA   (0x00010000)
-#define SRAM_START_SUBZ     (0x10000000)
-#define SRAM_LENGTH_SUBZ    (0x00020000)
-#define FLASH_START_SUBZ    (0x01000000)
-#define FLASH_LENGTH_SUBZ   (0x00100000)
-
-#define SRAM_PARM_M3ETA     (0x00001000)
-#define SRAM_PARM_SUBZ      (0x10001000)
 
 #define ETA_COMMON_SRAM_MAX_M3ETA  (0x00020000)
 #define ETA_COMMON_SRAM_BASE_M3ETA (0x00010000)
@@ -123,7 +99,7 @@ SCS Coresite Identification
 0xE000EFFC	Component ID3	0x000000B1
 
 ROM Table
-0xE00FFFD0	Peripheral ID4	0x00000000	
+0xE00FFFD0	Peripheral ID4	0x00000000
 0xE00FFFE0	Peripheral ID0	0x00000000
 0xE00FFFE4	Peripheral ID1	0x00000000
 0xE00FFFE8	Peripheral ID2	0x00000000
@@ -148,30 +124,20 @@ typedef union {
 	uint32_t jedec;
 } jedec_pid_container;
 
-#if 0
-/**
- * SRAM parameters to call helper functions.
- */
-typedef struct {
-	uint32_t ui32FlashAddress;	/**<  */
-	uint32_t ui32Length;	/**<  */
-	uint32_t ui32RC; /**<  */
-} eta_flash_interface_t;
-#endif
-
 /**
  * Chip versions supported by this driver.
  * Based on Cortex M3 ROM PID 0-3.
  */
 typedef enum {
-	etacore_m3eta, /* 0x11201691 */
-	etacore_subzero, /* 0x09201791 */
+	etacore_m3eta= 0,	/* 0x11201691 */
+	etacore_subzero,/* 0x09201791 */
+	etacore_unknown,
 } etacorem3_variant;
 
 /**
  * ETA flash bank info from probe.
  */
-typedef struct etacorem3_flash_bank {
+struct etacorem3_flash_bank {
 	etacorem3_variant variant;
 
 	/* flash geometry */
@@ -190,7 +156,7 @@ typedef struct etacorem3_flash_bank {
 	uint32_t jedec;
 
 	uint32_t probed;	/**< Flash bank has been probed. */
-} *Petacorem3_flash_bank;
+};
 
 /*
  * Jump table for subzero.
@@ -210,7 +176,7 @@ typedef struct etacorem3_flash_bank {
 #define TARGET_PROBED(info) { \
 		if (info->probed == 0) { \
 			LOG_ERROR("Target not probed"); \
-			return ERROR_FLASH_BANK_NOT_PROBED; }}	
+			return ERROR_FLASH_BANK_NOT_PROBED; }}
 #define TARGET_HALTED_AND_PROBED(target, info) { \
 		if (target->state != TARGET_HALTED) { \
 			LOG_ERROR("Target not halted"); \
@@ -231,9 +197,33 @@ static char *etacorePartnames[] = {
 	"Unknown"
 };
 
+/**
+ * magic numbers loaded into sram before bootrom call.
+ */
+static const uint32_t magic_numbers[] = {
+	0xc001c0de,
+	0xc001c0de,
+	0xdeadbeef,
+	0xc369a517,
+};
+
+
 /*
  * Utilities
  */
+
+/**
+ * Set magic numbers in target sram.
+ * @param bank information.
+ * @returns status of write buffer.
+ */
+static int set_magic_numbers(struct flash_bank *bank)
+{
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+	int retval = target_write_buffer(bank->target, etacorem3_bank->magic_address,
+			sizeof(magic_numbers), (uint8_t *)magic_numbers);
+	return retval;
+}
 
 /**
  * Read Jedec PID 0-3.
@@ -252,57 +242,54 @@ static int get_jedec_pid03(struct flash_bank *bank)
 		return 0;
 	}
 
-	LOG_DEBUG("Starting PIDS");
 	jedec_pid_container pid03;
 	uint32_t i,addr;
-	for (i=0,addr= REG_JEDEC_PID0; i < 4; i++,addr+= 4) {
+	for (i= 0,addr= REG_JEDEC_PID0; i < 4; i++,addr+= 4) {
 		uint32_t buf;
 		int retval = target_read_u32(bank->target, addr, &buf);
 		pid03.pids[i] = (uint8_t) (buf & 0x000000FF);
-		LOG_DEBUG("buf[0x%08x]: 0x%08x", addr, buf);
 		if (retval != ERROR_OK) {
 			LOG_ERROR("JEDEC PID%d not readable %d", i, retval);
 			return 0;
 		}
 	}
-	
+
 	return pid03.jedec;
 }
 
 /**
  * Set chip variant based on PID.
  * Default to Subzero.
- * @param bank 
+ * @param bank
  * @return success is ERROR_OK.
  * @return failure if not probed.
  */
 static int set_variant(struct flash_bank *bank)
 {
-	struct etacorem3_flash_bank *etacorem3_info = bank->driver_priv;
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	int retval = ERROR_OK;
 
-	TARGET_PROBED(etacorem3_info);
+	TARGET_PROBED(etacorem3_bank);
 
 	/* This may have failed previously if not halted. */
-	if (etacorem3_info->jedec == 0) {
-		etacorem3_info->jedec = get_jedec_pid03(bank);
-	}
+	if (etacorem3_bank->jedec == 0)
+		etacorem3_bank->jedec = get_jedec_pid03(bank);
 
 	/* Add parts here. We need to know the bootrom version. */
-	switch (etacorem3_info->jedec) {
+	switch (etacorem3_bank->jedec) {
 		case 0x11201691:
-			etacorem3_info->variant = etacore_m3eta;
+			etacorem3_bank->variant = etacore_m3eta;
 			break;
 		case 0x09201791:
-			etacorem3_info->variant = etacore_subzero;
+			etacorem3_bank->variant = etacore_subzero;
 			break;
 		default:
-			etacorem3_info->variant = etacore_subzero;
+			etacorem3_bank->variant = etacore_subzero;
 			break;
-		}
+	}
 	return retval;
 }
-	
+
 
 /*
  * OpenOCD exec commands.
@@ -317,10 +304,10 @@ static int set_variant(struct flash_bank *bank)
 static int etacorem3_mass_erase(struct flash_bank *bank)
 {
 	struct target *target = bank->target;
-	struct etacorem3_flash_bank *etacorem3_info = bank->driver_priv;
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	int retval = ERROR_OK;
 
-	TARGET_HALTED_AND_PROBED(target, etacorem3_info);
+	TARGET_HALTED_AND_PROBED(target, etacorem3_bank);
 
 	/*
 	 * Erase the main array.
@@ -341,25 +328,102 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
  */
 static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 {
-	struct etacorem3_flash_bank *etacorem3_info = bank->driver_priv;
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	struct target *target = bank->target;
-	uint32_t retval = ERROR_OK;
+	struct working_area *workarea;
+	struct reg_param reg_params[4];
+	struct armv7m_algorithm armv7m_algo;
+	int retval, sector;
+	const uint8_t erase_sector_code[] = {
+#include "../../../contrib/loaders/flash/fm4/erase.inc"
+	};
 
-	TARGET_HALTED_AND_PROBED(target, etacorem3_info);
+	TARGET_HALTED_AND_PROBED(target, etacorem3_bank);
+
+	LOG_DEBUG("ETA ECM35xx erase sectors %d to %d", first, last);
 
 	/*
 	 * Check for valid page range.
 	 */
-	if ((first < 0) || (last < first) || (last >= (int)etacorem3_info->num_pages))
+	if ((first < 0) || (last < first) || (last >= (int)etacorem3_bank->num_pages))
 		return ERROR_FLASH_SECTOR_INVALID;
 
 	/*
 	 * Mass Erase if all pages are given.
 	 */
-	if ((first == 0) && (last == ((int)etacorem3_info->num_pages-1)))
+	if ((first == 0) && (last == ((int)etacorem3_bank->num_pages-1)))
 		return etacorem3_mass_erase(bank);
 
-	
+	retval = target_alloc_working_area(target, sizeof(erase_sector_code),
+			&workarea);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No working area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+	retval = target_write_buffer(target, workarea->address,
+			sizeof(erase_sector_code), erase_sector_code);
+	if (retval != ERROR_OK)
+		goto err_write_code;
+
+	retval = set_magic_numbers(bank);
+	if (retval != ERROR_OK)
+		goto err_write_code;
+
+	armv7m_algo.common_magic = ARMV7M_COMMON_MAGIC;
+	armv7m_algo.core_mode = ARM_MODE_THREAD;
+
+	init_reg_param(&reg_params[0], "r0", 32, PARAM_OUT);
+	init_reg_param(&reg_params[1], "r1", 32, PARAM_OUT);
+	init_reg_param(&reg_params[2], "r2", 32, PARAM_OUT);
+	init_reg_param(&reg_params[3], "r3", 32, PARAM_IN);
+
+	for (sector = first; sector <= last; sector++) {
+		uint32_t addr = bank->base + bank->sectors[sector].offset;
+		uint32_t result;
+
+		buf_set_u32(reg_params[0].value, 0, 32, (addr & ~0xffff) | 0xAA8);
+		buf_set_u32(reg_params[1].value, 0, 32, (addr & ~0xffff) | 0x554);
+		buf_set_u32(reg_params[2].value, 0, 32, addr);
+
+		retval = target_run_algorithm(target,
+				0, NULL,
+				ARRAY_SIZE(reg_params), reg_params,
+				workarea->address, 0,
+				1000, &armv7m_algo);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("Error executing flash sector erase "
+				"programming algorithm");
+			retval = ERROR_FLASH_OPERATION_FAILED;
+			goto err_run;
+		}
+
+		result = buf_get_u32(reg_params[3].value, 0, 32);
+		if (result == 2) {
+			LOG_ERROR("Timeout error from flash sector erase programming algorithm");
+			retval = ERROR_FLASH_OPERATION_FAILED;
+			goto err_run_ret;
+		} else if (result != 0) {
+			LOG_ERROR(
+				"Unexpected error %d from flash sector erase programming algorithm",
+				result);
+			retval = ERROR_FLASH_OPERATION_FAILED;
+			goto err_run_ret;
+		} else
+			retval = ERROR_OK;
+
+		bank->sectors[sector].is_erased = 1;
+	}
+
+err_run_ret:
+err_run:
+	for (unsigned i = 0; i < ARRAY_SIZE(reg_params); i++)
+		destroy_reg_param(&reg_params[i]);
+
+err_write_code:
+	target_free_working_area(target, workarea);
+
+err_alloc_code:
 
 	LOG_DEBUG("%d pages erased!", 1+(last-first));
 
@@ -377,7 +441,7 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 static int etacorem3_write(struct flash_bank *bank,
 	const uint8_t *buffer, uint32_t offset, uint32_t count)
 {
-	/* struct etacorem3_flash_bank *etacorem3_info = bank->driver_priv; */
+	/* struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv; */
 	struct target *target = bank->target;
 	uint32_t address = bank->base + offset;
 	uint32_t buffer_pointer = 0x10001000;
@@ -466,44 +530,46 @@ static int etacorem3_protect_check(struct flash_bank *bank)
  */
 static int etacorem3_probe(struct flash_bank *bank)
 {
-	struct etacorem3_flash_bank *etacorem3_info = bank->driver_priv;
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 
-	if (etacorem3_info->probed == 1)
+	if (etacorem3_bank->probed == 1)
 		LOG_INFO("Probing part.");
 	else
 		LOG_DEBUG("Part already probed.");
 
 	/* Load extra info. */
-	etacorem3_info->jedec = get_jedec_pid03(bank);
-	if (etacorem3_info->jedec == 0) {
+	etacorem3_bank->jedec = get_jedec_pid03(bank);
+	if (etacorem3_bank->jedec == 0)
 		LOG_WARNING("Could not read PID");
-	}
-	LOG_DEBUG("ROM PID0-3: 0x%08x", etacorem3_info->jedec);
+	LOG_DEBUG("ROM PID[0-3]: 0x%08x", etacorem3_bank->jedec);
 
 	/* sets default value for case statement. */
 	set_variant(bank);
-	switch (etacorem3_info->variant) {
+	switch (etacorem3_bank->variant) {
 		case etacore_m3eta:
-			etacorem3_info->target_name = etacorePartnames[0];
-			etacorem3_info->num_pages = 0;
-			etacorem3_info->pagesize = 0;
-			etacorem3_info->magic_address = MAGIC_ADDR_M3ETA;
-			etacorem3_info->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
-			etacorem3_info->sram_size = ETA_COMMON_SRAM_SIZE_M3ETA;
-			etacorem3_info->flash_base = 0;
-			etacorem3_info->flash_size = 0;
+			etacorem3_bank->target_name = etacorePartnames[0];
+			etacorem3_bank->num_pages = 0;
+			etacorem3_bank->pagesize = 0;
+			etacorem3_bank->magic_address = MAGIC_ADDR_M3ETA;
+			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
+			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_M3ETA;
+			etacorem3_bank->flash_base = 0;
+			etacorem3_bank->flash_size = 0;
 			break;
 		case etacore_subzero:
-			etacorem3_info->target_name = etacorePartnames[1];
-			etacorem3_info->num_pages = ETA_COMMON_FLASH_NUM_PAGES_SUBZ;
-			etacorem3_info->pagesize = ETA_COMMON_FLASH_PAGE_SIZE_SUBZ;
-			etacorem3_info->magic_address = MAGIC_ADDR_SUBZ;
-			etacorem3_info->sram_base = ETA_COMMON_SRAM_BASE_SUBZ;
-			etacorem3_info->sram_size = ETA_COMMON_SRAM_SIZE_SUBZ;
-			etacorem3_info->flash_base = ETA_COMMON_FLASH_BASE_SUBZ;
-			etacorem3_info->flash_size = ETA_COMMON_FLASH_SIZE_SUBZ;
+			etacorem3_bank->target_name = etacorePartnames[1];
+			etacorem3_bank->num_pages = ETA_COMMON_FLASH_NUM_PAGES_SUBZ;
+			etacorem3_bank->pagesize = ETA_COMMON_FLASH_PAGE_SIZE_SUBZ;
+			etacorem3_bank->magic_address = MAGIC_ADDR_SUBZ;
+			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_SUBZ;
+			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_SUBZ;
+			etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_SUBZ;
+			etacorem3_bank->flash_size = ETA_COMMON_FLASH_SIZE_SUBZ;
 			break;
 		/* default: leave everything initialized to 0. */
+		case etacore_unknown:
+		default:
+			break;
 	}
 
 	if (bank->sectors) {
@@ -512,9 +578,10 @@ static int etacorem3_probe(struct flash_bank *bank)
 	}
 
 	/* provide this for the benefit of the NOR flash framework */
-	bank->base = bank->bank_number * etacorem3_info->flash_size;
-	bank->size = etacorem3_info->pagesize * etacorem3_info->num_pages;
-	bank->num_sectors = etacorem3_info->num_pages;
+	bank->base = (bank->bank_number * etacorem3_bank->flash_size) + \
+		etacorem3_bank->flash_base;
+	bank->size = etacorem3_bank->pagesize * etacorem3_bank->num_pages;
+	bank->num_sectors = etacorem3_bank->num_pages;
 
 	LOG_DEBUG("bank number: %d, base: 0x%08X, size: %d KB, num sectors: %d",
 		bank->bank_number,
@@ -524,13 +591,13 @@ static int etacorem3_probe(struct flash_bank *bank)
 
 	bank->sectors = calloc(bank->num_sectors, sizeof(struct flash_sector));
 	for (int i = 0; i < bank->num_sectors; i++) {
-		bank->sectors[i].offset = i * etacorem3_info->pagesize;
-		bank->sectors[i].size = etacorem3_info->pagesize;
+		bank->sectors[i].offset = i * etacorem3_bank->pagesize;
+		bank->sectors[i].size = etacorem3_bank->pagesize;
 		bank->sectors[i].is_erased = -1;
 		bank->sectors[i].is_protected = -1;
 	}
 
-	etacorem3_info->probed = 1;
+	etacorem3_bank->probed = 1;
 	return ERROR_OK;
 }
 
@@ -557,19 +624,25 @@ static int etacorem3_erase_check(struct flash_bank *bank)
  */
 static int get_etacorem3_info(struct flash_bank *bank, char *buf, int buf_size)
 {
-	struct etacorem3_flash_bank *etacorem3_info = bank->driver_priv;
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 
-	TARGET_PROBED(etacorem3_info);
+	TARGET_PROBED(etacorem3_bank);
 
 	int printed = snprintf(buf,
 			buf_size,
 			"\nETA Compute %s Partnum %u.%u"
-			"\n\tTotal Flash: %u KB, Sram: %u KB\n",
-			etacorem3_info->target_name,
-			(etacorem3_info->jedec & 0x7FF),
-			((etacorem3_info->jedec & 0x00F00000)>>20),
-			(etacorem3_info->flash_size/1024),
-			(etacorem3_info->sram_size/1024)
+			"\n\tTotal Flash: %u KB, Sram: %u KB\n"
+			"\n\tStart Flash: 0x%08X, Sram: 0x%08X"
+			"\n\tWorkareaPhys: 0x%08lX",
+			etacorem3_bank->target_name,
+			(etacorem3_bank->jedec & 0x7FF),
+			((etacorem3_bank->jedec & 0x00F00000)>>20),
+			(etacorem3_bank->flash_size/1024),
+			(etacorem3_bank->sram_size/1024)
+			,
+			etacorem3_bank->flash_base,
+			etacorem3_bank->sram_base,
+			bank->target->working_area_phys
 			);
 
 	if (printed < 0)
@@ -592,15 +665,15 @@ static int get_etacorem3_info(struct flash_bank *bank, char *buf, int buf_size)
  */
 FLASH_BANK_COMMAND_HANDLER(etacorem3_flash_bank_command)
 {
-	struct etacorem3_flash_bank *etacorem3_info;
+	struct etacorem3_flash_bank *etacorem3_bank;
 
 	if (CMD_ARGC < 6)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	etacorem3_info = calloc(1, sizeof(*etacorem3_info));
-	etacorem3_info->probed = 0;
+	etacorem3_bank = calloc(1, sizeof(*etacorem3_bank));
+	etacorem3_bank->probed = 0;
 
-	bank->driver_priv = etacorem3_info;
+	bank->driver_priv = etacorem3_bank;
 
 	return ERROR_OK;
 }
