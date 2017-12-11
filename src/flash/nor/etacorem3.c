@@ -77,6 +77,17 @@
 #define ETA_COMMON_FLASH_PAGE_SIZE_SUBZ (4096)
 #define ETA_COMMON_FLASH_NUM_PAGES_SUBZ \
 	(ETA_COMMON_FLASH_SIZE_SUBZ / ETA_COMMON_FLASH_PAGE_SIZE_SUBZ)
+#define ETA_COMMON_FLASH_PAGE_ADDR_BITS (12)
+#define ETA_COMMON_FLASH_PAGE_ADDR_MASK (0xFFFFF000)
+
+/* Fixed parameters to bootrom calls. */
+#define BOOTROM_FLASH_TNVS_COUNT   (0x10)
+#define BOOTROM_FLASH_TRE_COUNT    (0x28)
+#define BOOTROM_FLASH_TNVH_COUNT   (0x300)
+#define BOOTROM_FLASH_TRCV_COUNT   (0x30)
+#define BOOTROM_FLASH_TERASE_COUNT (0x30)
+#define BOOTROM_FLASH_TPGS_COUNT   (0x28)
+#define BOOTROM_FLASH_TPROG_COUNT  (0x50)
 
 /**
 @verbatim
@@ -84,8 +95,8 @@ Conceptual 64-bit Peripheral ID
          PID2                    PID1                    PID0
 |7 |  |  |  |  |  |  | 0|7 |  |  |  |  |  |  | 0|7 |  |  |  |  |  |  | 0|
 |23|  |  |20|19|18|  |  |  |  |  |12|11|  |  |  |  |  |  |  |  |  |  | 0|
-   Revision   ^      JEP106 ID Code           PartNumber
-                         |Uses JEP 106 ID
+	Revision   ^      JEP106 ID Code           PartNumber
+				|Uses JEP 106 ID
 ARM Debug Interface Architecture Specification ADIv5.0 to ADIv5.2
 
 SCS Coresite Identification
@@ -130,7 +141,7 @@ typedef union {
  */
 typedef enum {
 	etacore_m3eta= 0,	/* 0x11201691 */
-	etacore_subzero,/* 0x09201791 */
+	etacore_subzero,	/* 0x09201791 */
 	etacore_unknown,
 } etacorem3_variant;
 
@@ -161,22 +172,23 @@ struct etacorem3_flash_bank {
 /*
  * Jump table for subzero.
  */
-#define BootROM_FlashWSHelper   (0x0000009d)
-#define BootROM_ui32LoadHelper  (0x000000e5)
-#define BootROM_ui32StoreHelper (0x000000fd)
-#define BootROM_flash_ref_cell_erase    (0x00000285)
-#define BootROM_flash_erase             (0x00000385)
-#define BootROM_flash_program   (0x000004C9)
+
+#define BootROM_flash_erase_board      (0x00000385)
+#define BootROM_flash_program_board        (0x000004C9)
+#define BootROM_flash_erase_fpga       (0x000001fd)
+#define BootROM_flash_program_fpga         (0x00000281)
+
 
 #define TARGET_HALTED(target) { \
 		if (target->state != TARGET_HALTED) { \
 			LOG_ERROR("Target not halted"); \
-			return ERROR_TARGET_NOT_HALTED; \
-		}}
+			return ERROR_TARGET_NOT_HALTED; } }
+
 #define TARGET_PROBED(info) { \
 		if (info->probed == 0) { \
 			LOG_ERROR("Target not probed"); \
-			return ERROR_FLASH_BANK_NOT_PROBED; }}
+			return ERROR_FLASH_BANK_NOT_PROBED; } }
+
 #define TARGET_HALTED_AND_PROBED(target, info) { \
 		if (target->state != TARGET_HALTED) { \
 			LOG_ERROR("Target not halted"); \
@@ -184,14 +196,28 @@ struct etacorem3_flash_bank {
 		} \
 		if (info->probed == 0) { \
 			LOG_ERROR("Target not probed"); \
-			return ERROR_FLASH_BANK_NOT_PROBED; }}
+			return ERROR_FLASH_BANK_NOT_PROBED; } }
+
+#define CHECK_STATUS(rc, msg) { \
+		if (rc != ERROR_OK) \
+			LOG_ERROR("status(%d):%s\n", rc, msg); }
+
+#define CHECK_STATUS_RETURN(rc, msg) { \
+		if (rc != ERROR_OK) { \
+			LOG_ERROR("status(%d):%s\n", rc, msg); \
+			return rc; } }
+
+#define CHECK_STATUS_BREAK(rc, msg) { \
+		if (rc != ERROR_OK) { \
+			LOG_ERROR("status(%d):%s\n", rc, msg); \
+			break; } }
 
 /*
  * Global storage for driver.
  */
 
 /** Part names used by flash info command. */
-static char *etacorePartnames[] = {
+static const char const *etacorePartnames[] = {
 	"ETA M3",
 	"ETA M3/DSP (Subzero)",
 	"Unknown"
@@ -206,7 +232,6 @@ static const uint32_t magic_numbers[] = {
 	0xdeadbeef,
 	0xc369a517,
 };
-
 
 /*
  * Utilities
@@ -290,10 +315,96 @@ static int set_variant(struct flash_bank *bank)
 	return retval;
 }
 
+/** write the caller's_is_erased flag to given sectors. */
+static int write_is_erased(struct flash_bank *bank, int first, int last, int flag)
+{
+	if ((first > bank->num_sectors) || (last > bank->num_sectors))
+		return ERROR_FAIL;
+
+	for (int i = first; i < last; i++)
+		bank->sectors[i].is_erased = flag;
+	return ERROR_OK;
+}
+
+/** Location wrapper functions look for parameters. */
+#define SRAM_PARAM_START        (0x10001000)
+#define SRAM_ENTRY_POINT        (0x10000000)
+/** Wait for halt after each command. T*150ms */
+#define WAITHALT_TIMEOUT    (20)
+
+/** Execute bootloader command with SRAM parameters. */
+static int etacorem3_exec_command(struct target *target)
+{
+	int retval, retflash = ERROR_OK, timeout = 0;
+
+	/* Call sram wrapper function. */
+	retval = target_resume(
+			target,
+			false,
+			SRAM_ENTRY_POINT,
+			true,
+			true);
+
+	CHECK_STATUS(retval, "error executing etacorem3 command");
+
+	/*
+	 * Wait for halt, or fault during bootloader execution.
+	 */
+	int detected_failure = ERROR_OK;
+	while (timeout++ < WAITHALT_TIMEOUT) {
+		detected_failure = target_poll(target);
+		if (detected_failure != ERROR_OK)
+			break;
+		else if (target->state == TARGET_HALTED)
+			break;
+		else if (target->state == TARGET_RUNNING ||
+			target->state == TARGET_DEBUG_RUNNING) {
+			/*
+			 * Keep polling until target halts.
+			 */
+			target_poll(target);
+			if (detected_failure != ERROR_OK)
+				break;
+			alive_sleep(150);
+			LOG_DEBUG("Wait for Halt: target state = %d.", target->state);
+		} else {
+			LOG_ERROR("Target not halted or running: target state = %d.",
+				target->state);
+			break;
+		}
+	}
+
+	/* Report the timeout. User can continue. */
+	if (timeout >= WAITHALT_TIMEOUT)
+		LOG_ERROR("Wait for Halt Timeout: target state = %d.", timeout);
+
+	/*
+	 * Fault detected during execution takes precedence over all.
+	 */
+	if (detected_failure != ERROR_OK) {
+		LOG_ERROR("Fault during target execution: %d.", detected_failure);
+		retval = detected_failure;
+	} else if (retflash != ERROR_OK)
+		retval = retflash;
+
+	/* Return code from target_resume OR flash. */
+	return retval;
+}
 
 /*
  * OpenOCD exec commands.
  */
+
+/** Breakpoint loaded to sram location of return codes. */
+#define BREAKPOINT                  (0xfffffffe)
+
+typedef struct {
+	uint32_t flashAddress;
+	uint32_t flashLength;
+	uint32_t mass_erase;
+	uint32_t BootROM_entry_point;
+	uint32_t retval;
+} eta_erase_interface;
 
 /**
  * Mass erase flash bank.
@@ -306,14 +417,54 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 	struct target *target = bank->target;
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	int retval = ERROR_OK;
+	const uint8_t erase_sector_code[] = {
+#include "../../../contrib/loaders/flash/etacorem3/erase.inc"
+	};
 
 	TARGET_HALTED_AND_PROBED(target, etacorem3_bank);
 
 	/*
+	 * SRAM Parameters.
+	 */
+	eta_erase_interface sramargs = {
+		0x1000000,	/**< Start of flash. */
+		0x0000000,	/**< Length 0 for all. */
+		0x00000001,	/**< Request mass erase. */
+		BootROM_flash_erase_fpga,	/**< BootROM entry point. */
+		BREAKPOINT	/**< Return code from BootROM. */
+	};
+	retval = target_write_buffer(bank->target, SRAM_PARAM_START,
+				sizeof(eta_erase_interface), (uint8_t *)&sramargs);
+	if (retval != ERROR_OK) {
+		CHECK_STATUS(retval, "error writing target SRAM parameters.");
+		return retval;
+	}
+
+	/*
+	 * Load code into sram.
+	 */
+	retval = target_write_buffer(target, SRAM_ENTRY_POINT,
+			sizeof(erase_sector_code), erase_sector_code);
+	if (retval != ERROR_OK)
+		goto err_write_code;
+
+	retval = set_magic_numbers(bank);
+	if (retval != ERROR_OK)
+		goto err_write_code;
+
+	/*
 	 * Erase the main array.
 	 */
+	retval = etacorem3_exec_command(bank->target);
+	CHECK_STATUS(retval, "error executing mass erase");
+
+	/* if successful, set all sectors as erased */
+	if (retval == ERROR_OK)
+		write_is_erased(bank, 0, bank->num_sectors, 1);
+
 	LOG_INFO("Mass erase on bank %d.", bank->bank_number);
 
+err_write_code:
 	return retval;
 }
 
@@ -335,7 +486,7 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 	struct armv7m_algorithm armv7m_algo;
 	int retval, sector;
 	const uint8_t erase_sector_code[] = {
-#include "../../../contrib/loaders/flash/fm4/erase.inc"
+#include "../../../contrib/loaders/flash/etacorem3/erase.inc"
 	};
 
 	TARGET_HALTED_AND_PROBED(target, etacorem3_bank);
