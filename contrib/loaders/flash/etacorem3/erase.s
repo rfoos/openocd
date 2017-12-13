@@ -12,7 +12,7 @@
 	.eabi_attribute 18, 4
 	.thumb
 	.syntax unified
-	.file	"main.c"
+	.file	"erase.c"
 	.comm	BootROM_flash_erase,4,4
 	.section	.text.main,"ax",%progbits
 	.align	2
@@ -56,7 +56,7 @@ main:
 .L4:
 	ldr	r3, [r7, #8]
 	cmp	r3, #17301504
-	bcc	.L5
+	bls	.L5
 	ldr	r3, [r7, #16]
 	mvn	r2, #2
 	str	r2, [r3, #16]
@@ -123,7 +123,7 @@ main:
 	str	r2, [r3, #16]
 .L3:
 	.syntax unified
-@ 106 "../src/main.c" 1
+@ 90 "../src/erase.c" 1
 	    BKPT      #0
 @ 0 "" 2
 	.thumb
