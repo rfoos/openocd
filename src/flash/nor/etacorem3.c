@@ -91,34 +91,28 @@
 
 /**
 @verbatim
-Conceptual 64-bit Peripheral ID
-         PID2                    PID1                    PID0
-|7 |  |  |  |  |  |  | 0|7 |  |  |  |  |  |  | 0|7 |  |  |  |  |  |  | 0|
-|23|  |  |20|19|18|  |  |  |  |  |12|11|  |  |  |  |  |  |  |  |  |  | 0|
-	Revision   ^      JEP106 ID Code           PartNumber
-				|Uses JEP 106 ID
-ARM Debug Interface Architecture Specification ADIv5.0 to ADIv5.2
+ ARM Debug Interface Architecture Specification ADIv5.0 to ADIv5.2
 
-SCS Coresite Identification
-0xE000EFE0	Peripheral ID0	0x0000000C
-0xE000EFE4	Peripheral ID1	0x000000B0
-0xE000EFE8	Peripheral ID2	0x0000000B
-0xE000EFEC	Peripheral ID3	0x00000000
-0xE000EFF0	Component ID0	0x0000000D
-0xE000EFF4	Component ID1	0x000000E0
-0xE000EFF8	Component ID2	0x00000005
-0xE000EFFC	Component ID3	0x000000B1
+ SCS Coresite Identification
+ 0xE000EFE0	Peripheral ID0	0x0000000C
+ 0xE000EFE4	Peripheral ID1	0x000000B0
+ 0xE000EFE8	Peripheral ID2	0x0000000B
+ 0xE000EFEC	Peripheral ID3	0x00000000
+ 0xE000EFF0	Component ID0	0x0000000D
+ 0xE000EFF4	Component ID1	0x000000E0
+ 0xE000EFF8	Component ID2	0x00000005
+ 0xE000EFFC	Component ID3	0x000000B1
 
-ROM Table
-0xE00FFFD0	Peripheral ID4	0x00000000
-0xE00FFFE0	Peripheral ID0	0x00000000
-0xE00FFFE4	Peripheral ID1	0x00000000
-0xE00FFFE8	Peripheral ID2	0x00000000
-0xE00FFFEC	Peripheral ID3	0x00000000
-0xE00FFFF0	Component ID0	0x0000000D
-0xE00FFFF4	Component ID1	0x00000010
-0xE00FFFF8	Component ID2	0x00000005
-0xE00FFFFC	Component ID3	0x000000B1
+ ROM Table
+ 0xE00FFFD0	Peripheral ID4	0x00000000
+ 0xE00FFFE0	Peripheral ID0	0x00000000
+ 0xE00FFFE4	Peripheral ID1	0x00000000
+ 0xE00FFFE8	Peripheral ID2	0x00000000
+ 0xE00FFFEC	Peripheral ID3	0x00000000
+ 0xE00FFFF0	Component ID0	0x0000000D
+ 0xE00FFFF4	Component ID1	0x00000010
+ 0xE00FFFF8	Component ID2	0x00000005
+ 0xE00FFFFC	Component ID3	0x000000B1
 @endverbatim
 */
 
@@ -134,6 +128,9 @@ typedef union {
 	uint8_t pids[4];
 	uint32_t jedec;
 } jedec_pid_container;
+
+#define PID_M3ETA       (0x11201691)
+#define PID_SUBZERO     (0x09201791)
 
 /**
  * Chip versions supported by this driver.
@@ -182,15 +179,19 @@ struct etacorem3_flash_bank {
 #define BootROM_flash_program_fpga     (0x00000281)
 
 /**
- * Load and entry of wrapper function.
- * @note Depends on -work-area-phys in target file. */
+ * Load and entry points of wrapper function.
+ * @note Depends on -work-area-phys in target file.
+ */
 #define SRAM_ENTRY_POINT        (0x10000000)
 /** Location wrapper functions look for parameters, and top of stack. */
 #define SRAM_PARAM_START        (0x10001000)
 /** Target buffer for write operations. */
 #define SRAM_BUFFER_START               (0x10002000)
+
+#if 0
 /** Wait for halt after each command. T*150ms */
-#define WAITHALT_TIMEOUT    (20)
+#define WAITHALT_TIMEOUT                (20)
+#endif
 
 /** Last element of one dimensional array */
 #define ARRAY_LAST(x) x[ARRAY_SIZE(x)-1]
@@ -276,8 +277,15 @@ static int set_magic_numbers(struct flash_bank *bank)
 static int get_jedec_pid03(struct flash_bank *bank)
 {
 	struct target *target = bank->target;
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 
-	/* special error return code for this routine. */
+	/* If we have already read PID successfully, don't erase. */
+	if (etacorem3_bank->jedec != 0)
+		return etacorem3_bank->jedec;
+
+	/* special error return code 0 for this routine. */
+
+	/* If target is not halted, PID's don't read back a good value. */
 	if (target->state != TARGET_HALTED) {
 		LOG_ERROR("Target not halted");
 		return 0;
@@ -343,6 +351,48 @@ static int write_is_erased(struct flash_bank *bank, int first, int last, int fla
 	LOG_DEBUG("%" PRId32 " pages erased!", 1+(last-first));
 
 	return ERROR_OK;
+}
+
+/**
+ * Find memory size.
+ * @param bank
+ * @param startaddress
+ * @param maxsize
+ * @param increment
+ * @returns on success size in bytes.
+ * @returns on failure 0.
+ *
+ */
+static uint32_t get_memory_size(struct flash_bank *bank,
+	uint32_t startaddress,
+	uint32_t maxsize,
+	uint32_t increment)
+{
+	int retval;
+	uint32_t i, data;
+
+	/* Chip has no Memory. */
+	retval = target_read_u32(bank->target, startaddress, &data);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("Memory not found at 0x%08" PRIx32 ".", startaddress);
+		return 0;
+	}
+
+	/* The memory scan causes a bus fault. Ignore expected error messages. */
+	int save_debug_level = debug_level;
+	debug_level = LOG_LVL_OUTPUT;
+	/* Read flash size we are testing. 0 - Max flash size, 16k increments. */
+	for (i = 0; i < maxsize; i += increment) {
+		retval = target_read_u32(bank->target, startaddress+i, &data);
+		if (retval != ERROR_OK)
+			break;
+	}
+	/* Restore output level. */
+	debug_level = save_debug_level;
+
+	LOG_DEBUG("Memory starting at 0x%08" PRIx32 " size: %" PRIu32 " KB.",
+		startaddress, i/1024);
+	return i;
 }
 
 #if 0
@@ -740,9 +790,11 @@ static int etacorem3_probe(struct flash_bank *bank)
 		case etacore_unknown:
 		default:
 			etacorem3_bank->target_name = ARRAY_LAST(etacorePartnames);
-			LOG_ERROR("Unknown target %d.", etacorem3_bank->variant);
+			LOG_ERROR("Unknown target %" PRId32 ".", etacorem3_bank->variant);
 			break;
 	}
+	etacorem3_bank->sram_size  = get_memory_size(bank, 0x10000000, (256*1024), (32*1024));
+	etacorem3_bank->flash_size = get_memory_size(bank, 0x01000000, (1024*1024), (32*1024));
 
 	if (bank->sectors) {
 		free(bank->sectors);
@@ -854,7 +906,7 @@ static bool name_match(const char *s, const char *pattern)
 			return false;
 		i++;
 	}
-	LOG_DEBUG("Matched %s in %d characters.", pattern, i);
+	LOG_DEBUG("Matched %s in %" PRId32 " characters.", pattern, i);
 	return true;
 }
 
@@ -883,23 +935,29 @@ FLASH_BANK_COMMAND_HANDLER(etacorem3_flash_bank_command)
 		return ERROR_FLASH_OPERATION_FAILED;
 
 	etacorem3_bank->fpga = false;
-	if (name_match(variant, "FPGA")) {
+	if (name_match(variant, "FPGA"))
 		etacorem3_bank->fpga = true;
-		command_print(CMD_CTX, "Board is FPGA");
-	}
+
+	/* do this before get_jedec_pid03 */
+	bank->driver_priv = etacorem3_bank;
+
+	/* Try to read pid early. */
+	etacorem3_bank->jedec = get_jedec_pid03(bank);
+	/*
+	 * ASSUMPTION: Change when there are more bootrom versions.
+	 * workaround for times we cannot read PID.
+	 */
+	if ((etacorem3_bank->jedec == 0) && (etacorem3_bank->fpga))
+		etacorem3_bank->jedec = PID_SUBZERO;
 
 	etacorem3_bank->probed = false;
-
-	bank->driver_priv = etacorem3_bank;
 
 	return ERROR_OK;
 }
 
 /**
  * Handle external mass erase command.
- * @returns
- *
- *
+ * @returns ERROR_COMMAND_SYNTAX_ERROR or ERROR_OK.
  */
 COMMAND_HANDLER(etacorem3_handle_mass_erase_command)
 {
@@ -926,8 +984,7 @@ COMMAND_HANDLER(etacorem3_handle_mass_erase_command)
 
 /**
  * Handle external page erase command.
- * @returns
- *
+ * @returns ERROR_COMMAND_SYNTAX_ERROR or ERROR_OK.
  */
 COMMAND_HANDLER(etacorem3_handle_page_erase_command)
 {
@@ -953,7 +1010,7 @@ COMMAND_HANDLER(etacorem3_handle_page_erase_command)
 	return ERROR_OK;
 }
 /**
- * Register exec commands.
+ * Register exec commands, extensions to standard OCD commands.
  * Use this for additional commands specific to this target.
  * (i.e. Commands for automation, validation, or production)
  */
@@ -976,7 +1033,7 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 };
 
 /**
- * Register required commands by name and chain to exec commands.
+ * Register required commands and chain to optional exec commands.
  */
 static const struct command_registration etacorem3_command_handlers[] = {
 	{
