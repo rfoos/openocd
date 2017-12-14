@@ -60,13 +60,13 @@
 #define MAGIC_ADDR_SUBZ     (0x1001FFF0)
 
 #define ETA_COMMON_SRAM_MAX_M3ETA  (0x00020000)
-#define ETA_COMMON_SRAM_BASE_M3ETA (0x00010000)
+#define ETA_COMMON_SRAM_BASE_M3ETA (0x00000000)
 #define ETA_COMMON_SRAM_SIZE_M3ETA \
 	(ETA_COMMON_SRAM_MAX_M3ETA - ETA_COMMON_SRAM_BASE_M3ETA)
 #define ETA_COMMON_FLASH_PAGE_SIZE_M3ETA (0)
 
 #define ETA_COMMON_SRAM_MAX_SUBZ  (0x10020000)
-#define ETA_COMMON_SRAM_BASE_SUBZ (0x10010000)
+#define ETA_COMMON_SRAM_BASE_SUBZ (0x10000000)
 #define ETA_COMMON_SRAM_SIZE_SUBZ \
 	(ETA_COMMON_SRAM_MAX_SUBZ - ETA_COMMON_SRAM_BASE_SUBZ)
 
@@ -116,7 +116,7 @@
 @endverbatim
 */
 
-/* Jedec ROM (Debug) Registers to ID silicon/bootrom version. */
+/* Jedec ROM (Debug) Registers to ID chip/bootrom version. */
 
 /** ROM Peripheral ID 0 for Cortex M3. */
 #define REG_JEDEC_PID0             (0xE00FFFE0)
@@ -158,11 +158,13 @@ struct etacorem3_flash_bank {
 	const char *target_name;
 	uint32_t magic_address;
 	uint32_t sram_base;
-	uint32_t sram_size;
+	uint32_t sram_size;	/**< SRAM size calculated during probe. */
+	uint32_t sram_max;
 	uint32_t flash_base;
-	uint32_t flash_size;
+	uint32_t flash_size;	/**< Flash size calculated during probe. */
+	uint32_t flash_max;
 	uint32_t bootrom_erase_entry;
-	uint32_t bootrom_program_entry;
+	uint32_t bootrom_program_entry;	/**< BootROM_flash_program */
 
 	uint32_t jedec;	/**< chip info from rom PID. */
 	bool fpga;	/**< board or fpga from cfg file. */
@@ -173,20 +175,22 @@ struct etacorem3_flash_bank {
  * Jump table for subzero bootroms.
  */
 
-#define BootROM_flash_erase_board      (0x00000385)
-#define BootROM_flash_program_board    (0x000004C9)
-#define BootROM_flash_erase_fpga       (0x000001fd)
-#define BootROM_flash_program_fpga     (0x00000281)
+#define BootROM_flash_erase_board       (0x00000385)
+#define BootROM_flash_program_board     (0x000004C9)
+#define BootROM_flash_erase_fpga        (0x000001fd)
+#define BootROM_flash_program_fpga      (0x00000281)
 
 /**
  * Load and entry points of wrapper function.
  * @note Depends on -work-area-phys in target file.
  */
 #define SRAM_ENTRY_POINT        (0x10000000)
+
 /** Location wrapper functions look for parameters, and top of stack. */
 #define SRAM_PARAM_START        (0x10001000)
+
 /** Target buffer for write operations. */
-#define SRAM_BUFFER_START               (0x10002000)
+#define SRAM_BUFFER_START       (0x10002000)
 
 #if 0
 /** Wait for halt after each command. T*150ms */
@@ -477,6 +481,21 @@ typedef struct {
 	uint32_t retval;
 } eta_erase_interface;
 
+/** Target sram wrapper code for write. */
+static const uint8_t write_sector_code[] = {
+#include "../../../contrib/loaders/flash/etacorem3/write.inc"
+};
+
+/** SRAM parameters for write. */
+typedef struct {
+	uint32_t flashAddress;
+	uint32_t flashLength;
+	uint32_t sramBuffer;
+	uint32_t BootROM_entry_point;
+	uint32_t BootRomBug;
+	uint32_t retval;
+} eta_program_interface;
+
 static int common_erase_run(struct flash_bank *bank)
 {
 	int retval;
@@ -666,8 +685,9 @@ static int etacorem3_write(struct flash_bank *bank,
 	/*
 	 * Max buffer size for this device...
 	 * Bootrom bug can only write 512 bytes at a time.
+	 * Target side code will block this out.
 	 */
-	maxbuffer = 512;
+	maxbuffer = 4096;
 
 	LOG_INFO("Flashing main array");
 
@@ -764,6 +784,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 			etacorem3_bank->magic_address = MAGIC_ADDR_M3ETA;
 			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
 			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_M3ETA;
+			etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_M3ETA;
 			etacorem3_bank->flash_base = 0;
 			etacorem3_bank->flash_size = 0;
 			etacorem3_bank->bootrom_erase_entry = 0;
@@ -776,6 +797,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 			etacorem3_bank->magic_address = MAGIC_ADDR_SUBZ;
 			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_SUBZ;
 			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_SUBZ;
+			etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_SUBZ;
 			etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_SUBZ;
 			etacorem3_bank->flash_size = ETA_COMMON_FLASH_SIZE_SUBZ;
 			if (etacorem3_bank->fpga) {
@@ -793,13 +815,16 @@ static int etacorem3_probe(struct flash_bank *bank)
 			LOG_ERROR("Unknown target %" PRId32 ".", etacorem3_bank->variant);
 			break;
 	}
-	etacorem3_bank->sram_size  = get_memory_size(bank, 0x10000000, (256*1024), (32*1024));
-	etacorem3_bank->flash_size = get_memory_size(bank, 0x01000000, (1024*1024), (32*1024));
 
-	if (bank->sectors) {
-		free(bank->sectors);
-		bank->sectors = NULL;
-	}
+	etacorem3_bank->sram_size  = get_memory_size(bank,
+			etacorem3_bank->sram_base,
+			etacorem3_bank->sram_max,
+			(32*1024));
+	etacorem3_bank->flash_size = get_memory_size(bank,
+			etacorem3_bank->flash_base,
+			etacorem3_bank->flash_max,
+			(32*1024));
+
 
 	/* provide this for the benefit of the NOR flash framework */
 	bank->base = (bank->bank_number * etacorem3_bank->flash_size) + \
@@ -813,6 +838,11 @@ static int etacorem3_probe(struct flash_bank *bank)
 		bank->base,
 		bank->size/1024,
 		bank->num_sectors);
+
+	if (bank->sectors) {
+		free(bank->sectors);
+		bank->sectors = NULL;
+	}
 
 	bank->sectors = calloc(bank->num_sectors, sizeof(struct flash_sector));
 	for (int i = 0; i < bank->num_sectors; i++) {
