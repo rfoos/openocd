@@ -193,7 +193,6 @@ main:
 .L10:
 	ldr	r3, .L19+4
 	ldr	r4, [r3]
-	ldr	r1, [r7, #52]
 	movs	r3, #48
 	str	r3, [sp, #12]
 	mov	r3, #768
@@ -204,6 +203,7 @@ main:
 	str	r3, [sp]
 	movs	r3, #16
 	ldr	r2, [r7, #20]
+	ldr	r1, [r7, #52]
 	ldr	r0, [r7, #32]
 	blx	r4
 .L17:
@@ -212,7 +212,7 @@ main:
 	str	r2, [r3, #20]
 .L3:
 	.syntax unified
-@ 161 "../src/write.c" 1
+@ 148 "../src/write.c" 1
 	    BKPT      #0
 @ 0 "" 2
 	.thumb
