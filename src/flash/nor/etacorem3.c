@@ -653,7 +653,7 @@ static int etacorem3_write(struct flash_bank *bank,
 
 	/*
 	 * Max buffer size for this device...
-	 * Bootrom bug can only write 512 bytes at a time.
+	 * Bootrom can only write 512 bytes at a time.
 	 * Target side code will block the write into 512 bytes.
 	 */
 	maxbuffer = SRAM_BUFFER_SIZE;
@@ -663,6 +663,26 @@ static int etacorem3_write(struct flash_bank *bank,
 	struct working_area *workarea;
 	struct reg_param reg_params[1];
 
+	/*
+	 * Allocate space on target for write code.
+	 */
+	retval = target_alloc_working_area(bank->target,
+			sizeof(write_sector_code),
+			&workarea);
+	LOG_DEBUG("workarea address: 0x%08" PRIx64 ".", workarea->address);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No working area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+	/*
+	 * Load code on target.
+	 */
+	retval = target_write_buffer(bank->target, workarea->address,
+			sizeof(write_sector_code), write_sector_code);
+	if (retval != ERROR_OK)
+		goto err_write_code;
+
 	while (count > 0) {
 		if (count > maxbuffer)
 			thisrun_count = maxbuffer;
@@ -670,7 +690,7 @@ static int etacorem3_write(struct flash_bank *bank,
 			thisrun_count = count;
 
 		/*
-		 * Write Buffer.
+		 * Load target Write Buffer.
 		 */
 		retval = target_write_buffer(target, buffer_pointer, thisrun_count, buffer);
 		CHECK_STATUS_BREAK(retval, "error writing buffer to target.");
@@ -697,23 +717,6 @@ static int etacorem3_write(struct flash_bank *bank,
 
 		struct armv7m_algorithm armv7m_algo;
 
-		/*
-		 * Load write code.
-		 */
-		retval = target_alloc_working_area(bank->target,
-				sizeof(write_sector_code),
-				&workarea);
-		LOG_DEBUG("workarea address: 0x%08" PRIx64 ".", workarea->address);
-		if (retval != ERROR_OK) {
-			LOG_ERROR("No working area available.");
-			retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
-			goto err_alloc_code;
-		}
-		retval = target_write_buffer(bank->target, workarea->address,
-				sizeof(write_sector_code), write_sector_code);
-		if (retval != ERROR_OK)
-			goto err_write_code;
-
 		armv7m_algo.common_magic = ARMV7M_COMMON_MAGIC;
 		armv7m_algo.core_mode = ARM_MODE_THREAD;
 
@@ -726,7 +729,7 @@ static int etacorem3_write(struct flash_bank *bank,
 				0, NULL,
 				ARRAY_SIZE(reg_params), reg_params,
 				workarea->address, 0,
-				3000, &armv7m_algo);
+				4000, &armv7m_algo);
 		uint32_t retvalT;
 		int retval1 = target_read_u32(bank->target,
 				SRAM_PARAM_START + 0x14,
@@ -737,7 +740,7 @@ static int etacorem3_write(struct flash_bank *bank,
 				retval,
 				retval1,
 				retvalT);
-			LOG_DEBUG("addr: 0x%08X, count: 0x%08X", address, thisrun_count);
+			LOG_DEBUG("address: 0x%08X, count: 0x%08X", address, thisrun_count);
 			retval = ERROR_FLASH_OPERATION_FAILED;
 			goto err_run;
 		}
@@ -775,6 +778,7 @@ static int etacorem3_protect(struct flash_bank *bank, int set, int first, int la
 	 * Can't protect/unprotect on the etacorem3.
 	 * Initialized to unprotected.
 	 */
+	LOG_WARNING("Cannot protect/unprotect.");
 	return ERROR_OK;
 }
 
@@ -786,7 +790,10 @@ static int etacorem3_protect(struct flash_bank *bank, int set, int first, int la
  */
 static int etacorem3_protect_check(struct flash_bank *bank)
 {
-	/* sectors are always unprotected. */
+	/*
+	* sectors are always unprotected.
+	* set at initialization.
+	*/
 	return ERROR_OK;
 }
 /**
@@ -1050,35 +1057,6 @@ COMMAND_HANDLER(etacorem3_handle_mass_erase_command)
 	return ERROR_OK;
 }
 
-#if 0
-/**
- * Handle external page erase command.
- * @returns ERROR_COMMAND_SYNTAX_ERROR or ERROR_OK.
- */
-COMMAND_HANDLER(etacorem3_handle_page_erase_command)
-{
-	struct flash_bank *bank;
-	uint32_t first, last;
-	uint32_t retval;
-
-	if (CMD_ARGC < 3)
-		return ERROR_COMMAND_SYNTAX_ERROR;
-
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], first);
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], last);
-
-	retval = CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
-	if (ERROR_OK != retval)
-		return retval;
-
-	if (etacorem3_erase(bank, first, last) == ERROR_OK)
-		command_print(CMD_CTX, "etacorem3 page erase complete");
-	else
-		command_print(CMD_CTX, "etacorem3 page erase failed");
-
-	return ERROR_OK;
-}
-#endif
 
 /**
  * Register exec commands, extensions to standard OCD commands.
@@ -1093,15 +1071,6 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 		.mode = COMMAND_EXEC,
 		.help = "Erase entire device",
 	},
-#if 0
-	{
-		.name = "page_erase",
-		.usage = "<bank> <first> <last>",
-		.handler = etacorem3_handle_page_erase_command,
-		.mode = COMMAND_EXEC,
-		.help = "Erase device pages",
-	},
-#endif
 	COMMAND_REGISTRATION_DONE
 };
 
