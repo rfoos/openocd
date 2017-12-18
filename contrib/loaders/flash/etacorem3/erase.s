@@ -42,7 +42,7 @@ main:
 	cmp	r3, #16777216
 	bcs	.L2
 	ldr	r3, [r7, #16]
-	mov	r2, #-1
+	movs	r2, #1
 	str	r2, [r3, #16]
 	b	.L3
 .L2:
@@ -50,7 +50,7 @@ main:
 	cmp	r3, #17301504
 	bcc	.L4
 	ldr	r3, [r7, #16]
-	mvn	r2, #1
+	movs	r2, #2
 	str	r2, [r3, #16]
 	b	.L3
 .L4:
@@ -58,7 +58,7 @@ main:
 	cmp	r3, #17301504
 	bls	.L5
 	ldr	r3, [r7, #16]
-	mvn	r2, #2
+	movs	r2, #3
 	str	r2, [r3, #16]
 	b	.L3
 .L5:
@@ -69,19 +69,20 @@ main:
 	ldr	r3, [r7, #16]
 	ldr	r3, [r3, #12]
 	mov	r2, r3
-	ldr	r3, .L13
+	ldr	r3, .L14
 	str	r2, [r3]
-	b	.L7
-.L6:
-	ldr	r3, .L13
-	movw	r2, #509
-	str	r2, [r3]
-.L7:
 	ldr	r3, [r7, #16]
 	ldr	r3, [r3, #8]
 	cmp	r3, #1
 	bne	.L10
-	ldr	r3, .L13
+	b	.L13
+.L6:
+	ldr	r3, [r7, #16]
+	movs	r2, #4
+	str	r2, [r3, #16]
+	b	.L3
+.L13:
+	ldr	r3, .L14
 	ldr	r4, [r3]
 	movs	r3, #48
 	str	r3, [sp, #4]
@@ -98,7 +99,7 @@ main:
 	bic	r3, r3, #4080
 	bic	r3, r3, #15
 	str	r3, [r7, #4]
-	ldr	r3, .L13
+	ldr	r3, .L14
 	ldr	r4, [r3]
 	movs	r3, #48
 	str	r3, [sp, #4]
@@ -123,7 +124,7 @@ main:
 	str	r2, [r3, #16]
 .L3:
 	.syntax unified
-@ 90 "../src/erase.c" 1
+@ 110 "../src/erase.c" 1
 	    BKPT      #0
 @ 0 "" 2
 	.thumb
@@ -134,9 +135,9 @@ main:
 	mov	sp, r7
 	@ sp needed
 	pop	{r4, r7, pc}
-.L14:
+.L15:
 	.align	2
-.L13:
+.L14:
 	.word	BootROM_flash_erase
 	.size	main, .-main
 	.ident	"GCC: (15:5.4.1+svn241155-1) 5.4.1 20160919"

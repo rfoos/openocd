@@ -51,13 +51,19 @@
 /**
  * @file
  * Flash programming support for ETA ECM3xx devices.
- *
  */
 
 /* SRAM Address for magic numbers. */
 
 #define MAGIC_ADDR_M3ETA    (0x0001FFF0)
 #define MAGIC_ADDR_SUBZ     (0x1001FFF0)
+
+/* Max flash/sram size all supported parts. */
+
+#define ETA_COMMON_SRAM_SIZE_MAX        (0x00020000)
+#define ETA_COMMON_FLASH_SIZE_MAX       (0x00080000)
+
+/* Supported parts, M3ETA, SUBZ */
 
 #define ETA_COMMON_SRAM_MAX_M3ETA  (0x00020000)
 #define ETA_COMMON_SRAM_BASE_M3ETA (0x00000000)
@@ -80,7 +86,8 @@
 #define ETA_COMMON_FLASH_PAGE_ADDR_BITS (12)
 #define ETA_COMMON_FLASH_PAGE_ADDR_MASK (0xFFFFF000)
 
-/* Fixed parameters to bootrom calls. */
+/* Fixed parameters in bootrom calls. */
+
 #define BOOTROM_FLASH_TNVS_COUNT   (0x10)
 #define BOOTROM_FLASH_TRE_COUNT    (0x28)
 #define BOOTROM_FLASH_TNVH_COUNT   (0x300)
@@ -157,14 +164,14 @@ struct etacorem3_flash_bank {
 
 	const char *target_name;
 	uint32_t magic_address;
-	uint32_t sram_base;
+	uint32_t sram_base;	/**< SRAM Start Address. */
 	uint32_t sram_size;	/**< SRAM size calculated during probe. */
 	uint32_t sram_max;
-	uint32_t flash_base;
+	uint32_t flash_base;	/**< Flash Start Address. */
 	uint32_t flash_size;	/**< Flash size calculated during probe. */
 	uint32_t flash_max;
 	uint32_t bootrom_erase_entry;
-	uint32_t bootrom_program_entry;	/**< BootROM_flash_program */
+	uint32_t bootrom_write_entry;	/**< BootROM_flash_program */
 
 	uint32_t jedec;	/**< chip info from rom PID. */
 	bool fpga;	/**< board or fpga from cfg file. */
@@ -177,25 +184,20 @@ struct etacorem3_flash_bank {
 
 #define BootROM_flash_erase_board       (0x00000385)
 #define BootROM_flash_program_board     (0x000004C9)
-#define BootROM_flash_erase_fpga        (0x000001fd)
-#define BootROM_flash_program_fpga      (0x00000281)
+#define BootROM_flash_erase_fpga        (0x00000249)
+#define BootROM_flash_program_fpga      (0x000002CD)
 
 /**
  * Load and entry points of wrapper function.
  * @note Depends on -work-area-phys in target file.
  */
 #define SRAM_ENTRY_POINT        (0x10000000)
-
 /** Location wrapper functions look for parameters, and top of stack. */
 #define SRAM_PARAM_START        (0x10001000)
-
-/** Target buffer for write operations. */
+/** Target buffer start address for write operations. */
 #define SRAM_BUFFER_START       (0x10002000)
-
-#if 0
-/** Wait for halt after each command. T*150ms */
-#define WAITHALT_TIMEOUT                (20)
-#endif
+/** Target buffer size. */
+#define SRAM_BUFFER_SIZE        (0x00004000)
 
 /** Last element of one dimensional array */
 #define ARRAY_LAST(x) x[ARRAY_SIZE(x)-1]
@@ -244,9 +246,7 @@ static const char const *etacorePartnames[] = {
 	"Unknown"
 };
 
-/**
- * magic numbers loaded into sram before bootrom call.
- */
+/** Magic numbers loaded into sram before bootrom call. */
 static const uint32_t magic_numbers[] = {
 	0xc001c0de,
 	0xc001c0de,
@@ -399,67 +399,6 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 	return i;
 }
 
-#if 0
-/** Execute bootloader command with SRAM parameters. */
-static int etacorem3_exec_command(struct target *target)
-{
-	int retval, retflash = ERROR_OK, timeout = 0;
-
-	/* Call sram wrapper function. */
-	retval = target_resume(
-			target,
-			false,
-			SRAM_ENTRY_POINT,
-			true,
-			true);
-
-	CHECK_STATUS(retval, "error executing etacorem3 command");
-
-	/*
-	 * Wait for halt, or fault during bootloader execution.
-	 */
-	int detected_failure = ERROR_OK;
-	while (timeout++ < WAITHALT_TIMEOUT) {
-		detected_failure = target_poll(target);
-		if (detected_failure != ERROR_OK)
-			break;
-		else if (target->state == TARGET_HALTED)
-			break;
-		else if (target->state == TARGET_RUNNING ||
-			target->state == TARGET_DEBUG_RUNNING) {
-			/*
-			 * Keep polling until target halts.
-			 */
-			target_poll(target);
-			if (detected_failure != ERROR_OK)
-				break;
-			alive_sleep(150);
-			LOG_DEBUG("Wait for Halt: target state = %" PRId32 ".", target->state);
-		} else {
-			LOG_ERROR("Target not halted or running: target state = %" PRId32 ".",
-				target->state);
-			break;
-		}
-	}
-
-	/* Report the timeout. User can continue. */
-	if (timeout >= WAITHALT_TIMEOUT)
-		LOG_ERROR("Wait for Halt Timeout: target state = %" PRId32 ".", timeout);
-
-	/*
-	 * Fault detected during execution takes precedence over all.
-	 */
-	if (detected_failure != ERROR_OK) {
-		LOG_ERROR("Fault during target execution: %" PRId32 ".", detected_failure);
-		retval = detected_failure;
-	} else if (retflash != ERROR_OK)
-		retval = retflash;
-
-	/* Return code from target_resume OR flash. */
-	return retval;
-}
-#endif
-
 /*
  * OpenOCD exec commands.
  */
@@ -476,7 +415,7 @@ static const uint8_t erase_sector_code[] = {
 typedef struct {
 	uint32_t flashAddress;
 	uint32_t flashLength;
-	uint32_t mass_erase;
+	uint32_t options;
 	uint32_t BootROM_entry_point;
 	uint32_t retval;
 } eta_erase_interface;
@@ -492,9 +431,9 @@ typedef struct {
 	uint32_t flashLength;
 	uint32_t sramBuffer;
 	uint32_t BootROM_entry_point;
-	uint32_t BootRomBug;
+	uint32_t options;	/**< 1 - Write 512 bytes at a time. */
 	uint32_t retval;
-} eta_program_interface;
+} eta_write_interface;
 
 static int common_erase_run(struct flash_bank *bank)
 {
@@ -516,8 +455,8 @@ static int common_erase_run(struct flash_bank *bank)
 	/*
 	 * Load erase code.
 	 */
-	retval = target_alloc_working_area(bank->target, sizeof(erase_sector_code),
-			&workarea);
+	retval = target_alloc_working_area(bank->target,
+			sizeof(erase_sector_code), &workarea);
 	LOG_DEBUG("workarea address: 0x%08" PRIx64 ".", workarea->address);
 	if (retval != ERROR_OK) {
 		LOG_ERROR("No working area available.");
@@ -532,7 +471,7 @@ static int common_erase_run(struct flash_bank *bank)
 	armv7m_algo.common_magic = ARMV7M_COMMON_MAGIC;
 	armv7m_algo.core_mode = ARM_MODE_THREAD;
 
-	/* wrapper function stack */
+	/* wrapper function needs stack */
 	init_reg_param(&reg_params[0], "sp", 32, PARAM_OUT);
 	/* Set the sram stack. */
 	buf_set_u32(reg_params[0].value, 0, 32, SRAM_PARAM_START);
@@ -541,9 +480,19 @@ static int common_erase_run(struct flash_bank *bank)
 			0, NULL,
 			ARRAY_SIZE(reg_params), reg_params,
 			workarea->address, 0,
-			1000, &armv7m_algo);
-	if (retval != ERROR_OK) {
-		LOG_ERROR("Error executing flash sector erase %" PRId32 ".", retval);
+			5000, &armv7m_algo);
+	uint32_t retvalT;
+	int retval1 = target_read_u32(bank->target,
+			SRAM_PARAM_START + 0x10,
+			&retvalT);
+	if ((retval != ERROR_OK) || (retval1 != ERROR_OK) || (retvalT != 0)) {
+		LOG_ERROR(
+			"Error executing flash erase %" PRId32 ", RC1 %" PRId32 ", TRC %" PRId32 ".",
+			retval,
+			retval1,
+			retvalT);
+		target_read_u32(bank->target, SRAM_PARAM_START, &retvalT);
+		LOG_DEBUG("Address: 0x%08X", retvalT);
 		retval = ERROR_FLASH_OPERATION_FAILED;
 		goto err_run;
 	}
@@ -578,9 +527,9 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 	 * Load SRAM Parameters.
 	 */
 	eta_erase_interface sramargs = {
-		0x1000000,	/**< Start of flash. */
-		0x0000000,	/**< Length 0 for all. */
-		0x00000001,	/**< Request mass erase. */
+		etacorem3_bank->flash_base,	/**< Start of flash. */
+		0x00000000,	/**< Length 0 for all. */
+		0x00000001,	/**< Option 1, mass erase. */
 		etacorem3_bank->bootrom_erase_entry,	/**< BootROM entry point. */
 		BREAKPOINT	/**< Return code from BootROM. */
 	};
@@ -590,6 +539,16 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 		CHECK_STATUS(retval, "error writing target SRAM parameters.");
 		goto err_alloc_code;
 	}
+
+	/* Common erase execution code. */
+	retval = common_erase_run(bank);
+
+	/* if successful, mark sectors as erased */
+	if (retval == ERROR_OK)
+		write_is_erased(bank,
+			etacorem3_bank->flash_base,
+			etacorem3_bank->flash_base + etacorem3_bank->flash_size,
+			1);
 
 	LOG_DEBUG("Mass erase on bank %" PRId32 ".", bank->bank_number);
 
@@ -628,12 +587,11 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 	if ((first == 0) && (last == ((int)etacorem3_bank->num_pages-1)))
 		return etacorem3_mass_erase(bank);
 
-
 	/*
 	 * Load SRAM Parameters.
 	 */
 	eta_erase_interface sramargs = {
-		0x1000000 + (first * etacorem3_bank->pagesize),	/**< Start address in flash. */
+		etacorem3_bank->flash_base + (first * etacorem3_bank->pagesize),
 		(last - first + 1) * etacorem3_bank->pagesize,	/**< Length in bytes. */
 		0x00000000,	/**< Request page erase. */
 		etacorem3_bank->bootrom_erase_entry,	/**< BootROM entry point. */
@@ -669,7 +627,7 @@ err_alloc_code:
 static int etacorem3_write(struct flash_bank *bank,
 	const uint8_t *buffer, uint32_t offset, uint32_t count)
 {
-	/* struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv; */
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	struct target *target = bank->target;
 	uint32_t address = bank->base + offset;
 	uint32_t buffer_pointer = SRAM_BUFFER_START;
@@ -677,19 +635,33 @@ static int etacorem3_write(struct flash_bank *bank,
 	uint32_t thisrun_count;
 	int retval = ERROR_OK;
 
+	/* Bootrom uses 64 bit count. */
 	if (((count%4) != 0) || ((offset%4) != 0)) {
 		LOG_ERROR("write block must be multiple of 4 bytes in offset & length");
 		return ERROR_FAIL;
+	}
+	LOG_INFO("Buffer 0x%08lX, offset 0x%08X, count 0x%08X",
+		(uintptr_t) buffer, offset, count);
+	/*
+	 * Load Magic numbers required for bootrom help function execution.
+	 */
+	retval = set_magic_numbers(bank);
+	if (retval != ERROR_OK) {
+		CHECK_STATUS(retval, "error writing magic numbers to target.");
+		goto err_write_code;
 	}
 
 	/*
 	 * Max buffer size for this device...
 	 * Bootrom bug can only write 512 bytes at a time.
-	 * Target side code will block this out.
+	 * Target side code will block the write into 512 bytes.
 	 */
-	maxbuffer = 4096;
+	maxbuffer = SRAM_BUFFER_SIZE;
 
 	LOG_INFO("Flashing main array");
+
+	struct working_area *workarea;
+	struct reg_param reg_params[1];
 
 	while (count > 0) {
 		if (count > maxbuffer)
@@ -705,12 +677,70 @@ static int etacorem3_write(struct flash_bank *bank,
 
 		LOG_DEBUG("address = 0x%08" PRIx32, address);
 
-		/* load sram parameters. */
+		/*
+		 * Load SRAM Parameters.
+		 */
+		eta_write_interface sramargs = {
+			address,	/**< Start address in flash. */
+			thisrun_count,	/**< Length in bytes. */
+			buffer_pointer,
+			etacorem3_bank->bootrom_write_entry,	/**< BootROM entry point. */
+			0x00000001,	/**< Option 1, write flash in 512 byte blocks. */
+			BREAKPOINT	/**< Return code from BootROM. */
+		};
+		retval = target_write_buffer(bank->target, SRAM_PARAM_START,
+				sizeof(eta_write_interface), (uint8_t *)&sramargs);
+		if (retval != ERROR_OK) {
+			CHECK_STATUS(retval, "error writing target SRAM parameters.");
+			goto err_alloc_code;
+		}
 
-		/* write a sector. */
+		struct armv7m_algorithm armv7m_algo;
 
+		/*
+		 * Load write code.
+		 */
+		retval = target_alloc_working_area(bank->target,
+				sizeof(write_sector_code),
+				&workarea);
+		LOG_DEBUG("workarea address: 0x%08" PRIx64 ".", workarea->address);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("No working area available.");
+			retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+			goto err_alloc_code;
+		}
+		retval = target_write_buffer(bank->target, workarea->address,
+				sizeof(write_sector_code), write_sector_code);
 		if (retval != ERROR_OK)
-			break;
+			goto err_write_code;
+
+		armv7m_algo.common_magic = ARMV7M_COMMON_MAGIC;
+		armv7m_algo.core_mode = ARM_MODE_THREAD;
+
+		/* wrapper function stack */
+		init_reg_param(&reg_params[0], "sp", 32, PARAM_OUT);
+		/* Set the sram stack. */
+		buf_set_u32(reg_params[0].value, 0, 32, SRAM_PARAM_START);
+		/* Run the code. */
+		retval = target_run_algorithm(bank->target,
+				0, NULL,
+				ARRAY_SIZE(reg_params), reg_params,
+				workarea->address, 0,
+				3000, &armv7m_algo);
+		uint32_t retvalT;
+		int retval1 = target_read_u32(bank->target,
+				SRAM_PARAM_START + 0x14,
+				&retvalT);
+		if ((retval != ERROR_OK) || (retval1 != ERROR_OK) || (retvalT != 0)) {
+			LOG_ERROR(
+				"Error executing flash erase %" PRId32 ", RC1 %" PRId32 ", TRC %" PRId32 ".",
+				retval,
+				retval1,
+				retvalT);
+			LOG_DEBUG("addr: 0x%08X, count: 0x%08X", address, thisrun_count);
+			retval = ERROR_FLASH_OPERATION_FAILED;
+			goto err_run;
+		}
 		buffer += thisrun_count;
 		address += thisrun_count;
 		count -= thisrun_count;
@@ -718,6 +748,15 @@ static int etacorem3_write(struct flash_bank *bank,
 
 
 	LOG_INFO("Main array flashed");
+
+err_run:
+	for (unsigned i = 0; i < ARRAY_SIZE(reg_params); i++)
+		destroy_reg_param(&reg_params[i]);
+
+err_write_code:
+	target_free_working_area(bank->target, workarea);
+
+err_alloc_code:
 
 	return retval;
 }
@@ -784,11 +823,12 @@ static int etacorem3_probe(struct flash_bank *bank)
 			etacorem3_bank->magic_address = MAGIC_ADDR_M3ETA;
 			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
 			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_M3ETA;
-			etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_M3ETA;
+			etacorem3_bank->sram_max = ETA_COMMON_SRAM_SIZE_MAX;
 			etacorem3_bank->flash_base = 0;
 			etacorem3_bank->flash_size = 0;
+			etacorem3_bank->flash_max = ETA_COMMON_FLASH_SIZE_MAX;
 			etacorem3_bank->bootrom_erase_entry = 0;
-			etacorem3_bank->bootrom_program_entry = 0;
+			etacorem3_bank->bootrom_write_entry = 0;
 			break;
 		case etacore_subzero:
 			etacorem3_bank->target_name = etacorePartnames[1];
@@ -797,15 +837,16 @@ static int etacorem3_probe(struct flash_bank *bank)
 			etacorem3_bank->magic_address = MAGIC_ADDR_SUBZ;
 			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_SUBZ;
 			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_SUBZ;
-			etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_SUBZ;
+			etacorem3_bank->sram_max = ETA_COMMON_SRAM_SIZE_MAX;
 			etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_SUBZ;
 			etacorem3_bank->flash_size = ETA_COMMON_FLASH_SIZE_SUBZ;
+			etacorem3_bank->flash_max = ETA_COMMON_FLASH_SIZE_MAX;
 			if (etacorem3_bank->fpga) {
 				etacorem3_bank->bootrom_erase_entry = BootROM_flash_erase_fpga;
-				etacorem3_bank->bootrom_program_entry = BootROM_flash_program_fpga;
+				etacorem3_bank->bootrom_write_entry = BootROM_flash_program_fpga;
 			} else {
 				etacorem3_bank->bootrom_erase_entry = BootROM_flash_erase_board;
-				etacorem3_bank->bootrom_program_entry = BootROM_flash_program_board;
+				etacorem3_bank->bootrom_write_entry = BootROM_flash_program_board;
 			}
 			break;
 		/* default: leave everything initialized to 0 (calloc). */
@@ -883,21 +924,18 @@ static int get_etacorem3_info(struct flash_bank *bank, char *buf, int buf_size)
 
 	int printed = snprintf(buf,
 			buf_size,
-			"\nETA Compute %s Partnum %" PRIu32 ".%" PRIu32 "."
-			" %s"
-			"\n\tTotal Flash: %" PRIu32 " KB, Sram: %" PRIu32 " KB\n"
-			"\n\tStart Flash: 0x%08" PRIx32 ", Sram: 0x%08" PRIx32 "."
-			"\n\tWorkareaPhys: 0x%08l" PRIx32 ".",
+			"\nETA Compute %s Partnum %" PRIu32 ".%" PRIu32 ". %s"
+			"\n\tTotal Flash: %" PRIu32 " KB, Sram: %" PRIu32 " KB."
+			"\n\tStart Flash: 0x%08" PRIx32 ", Sram: 0x%08" PRIx32 ".",
 			etacorem3_bank->target_name,
-			(etacorem3_bank->jedec & 0x7FF),
+			(etacorem3_bank->jedec & 0x7FF),/* 11 bits. */
 			((etacorem3_bank->jedec & 0x00F00000)>>20),
 			(etacorem3_bank->fpga ? "FPGA" : ""),
 			(etacorem3_bank->flash_size/1024),
 			(etacorem3_bank->sram_size/1024)
 			,
 			etacorem3_bank->flash_base,
-			etacorem3_bank->sram_base,
-			bank->target->working_area_phys
+			etacorem3_bank->sram_base
 			);
 
 	if (printed < 0)
@@ -1012,6 +1050,7 @@ COMMAND_HANDLER(etacorem3_handle_mass_erase_command)
 	return ERROR_OK;
 }
 
+#if 0
 /**
  * Handle external page erase command.
  * @returns ERROR_COMMAND_SYNTAX_ERROR or ERROR_OK.
@@ -1039,6 +1078,8 @@ COMMAND_HANDLER(etacorem3_handle_page_erase_command)
 
 	return ERROR_OK;
 }
+#endif
+
 /**
  * Register exec commands, extensions to standard OCD commands.
  * Use this for additional commands specific to this target.
@@ -1052,6 +1093,7 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 		.mode = COMMAND_EXEC,
 		.help = "Erase entire device",
 	},
+#if 0
 	{
 		.name = "page_erase",
 		.usage = "<bank> <first> <last>",
@@ -1059,6 +1101,7 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 		.mode = COMMAND_EXEC,
 		.help = "Erase device pages",
 	},
+#endif
 	COMMAND_REGISTRATION_DONE
 };
 
