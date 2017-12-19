@@ -198,6 +198,10 @@ struct etacorem3_flash_bank {
 #define SRAM_BUFFER_START       (0x10002000)
 /** Target buffer size. */
 #define SRAM_BUFFER_SIZE        (0x00004000)
+/** Target algorithm start, Set in target -work-area-size. */
+#define SRAM_ALGO_START         (0x10006000)
+/** Target algo code max size. Set in target file -work-area-phys. */
+#define SRAM_ALGO_SIZE          (0x00004000)
 
 /** Last element of one dimensional array */
 #define ARRAY_LAST(x) x[ARRAY_SIZE(x)-1]
