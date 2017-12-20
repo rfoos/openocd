@@ -644,8 +644,7 @@ static int etacorem3_write(struct flash_bank *bank,
 		LOG_ERROR("write block must be multiple of 4 bytes in offset & length");
 		return ERROR_FAIL;
 	}
-	LOG_INFO("Buffer 0x%08lX, offset 0x%08X, count 0x%08X",
-		(uintptr_t) buffer, offset, count);
+
 	/*
 	 * Load Magic numbers required for bootrom help function execution.
 	 */
@@ -661,8 +660,6 @@ static int etacorem3_write(struct flash_bank *bank,
 	 * Target side code will block the write into 512 bytes.
 	 */
 	maxbuffer = SRAM_BUFFER_SIZE;
-
-	LOG_INFO("Flashing main array");
 
 	struct working_area *workarea;
 	struct reg_param reg_params[1];
@@ -754,8 +751,6 @@ static int etacorem3_write(struct flash_bank *bank,
 	}
 
 
-	LOG_INFO("Main array flashed");
-
 err_run:
 	for (unsigned i = 0; i < ARRAY_SIZE(reg_params); i++)
 		destroy_reg_param(&reg_params[i]);
@@ -814,7 +809,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 	if (etacorem3_bank->probed)
 		return ERROR_OK;
 	else
-		LOG_INFO("Probing part.");
+		LOG_DEBUG("Probing part.");
 
 	/* Load extra info. */
 	etacorem3_bank->jedec = get_jedec_pid03(bank);
