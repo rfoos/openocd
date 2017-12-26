@@ -124,7 +124,7 @@ typedef union {
 } jedec_pid_container;
 
 #define PID_M3ETA       (0x11201691)
-#define PID_SUBZERO     (0x09201791)
+#define PID_ECM3501     (0x09201791)
 
 /**
  * Chip versions supported by this driver.
@@ -132,7 +132,7 @@ typedef union {
  */
 typedef enum {
 	etacore_m3eta = 0,	/* 0x11201691 */
-	etacore_subzero,	/* 0x09201791 */
+	etacore_ecm3501,	/* 0x09201791 */
 	etacore_unknown,
 } etacorem3_variant;
 
@@ -166,7 +166,7 @@ struct etacorem3_flash_bank {
 };
 
 /*
- * Jump table for subzero bootroms.
+ * Jump table for ecm35xx bootroms with flash.
  */
 
 #define BootROM_flash_erase_board       (0x00000385)
@@ -231,9 +231,9 @@ struct etacorem3_flash_bank {
  */
 
 /** Part names used by flash info command. */
-static const char const *etacorePartnames[] = {
+static const char *const etacorePartnames[] = {
 	"ETA M3",
-	"ETA M3/DSP (Subzero)",
+	"ETA M3/DSP (ECM3501)",
 	"Unknown"
 };
 
@@ -303,7 +303,7 @@ static int get_jedec_pid03(struct flash_bank *bank)
 
 /**
  * Set chip variant based on PID.
- * Default to Subzero.
+ * Default to ECM3501.
  * @param bank
  * @return success is ERROR_OK.
  * @return failure if not probed.
@@ -321,16 +321,67 @@ static int set_variant(struct flash_bank *bank)
 
 	/* Add parts here. We need to know the bootrom version. */
 	switch (etacorem3_bank->jedec) {
-		case 0x11201691:
+		case PID_M3ETA:
 			etacorem3_bank->variant = etacore_m3eta;
 			break;
-		case 0x09201791:
-			etacorem3_bank->variant = etacore_subzero;
+		case PID_ECM3501:
+			etacorem3_bank->variant = etacore_ecm3501;
 			break;
 		default:
-			etacorem3_bank->variant = etacore_subzero;
+			etacorem3_bank->variant = etacore_ecm3501;
 			break;
 	}
+	return retval;
+}
+
+static int set_variant_defaults(struct flash_bank *bank)
+{
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+	int retval = ERROR_OK;
+
+	switch (etacorem3_bank->variant) {
+		case etacore_m3eta:
+			etacorem3_bank->target_name = etacorePartnames[0];
+			etacorem3_bank->num_pages = 0;
+			etacorem3_bank->pagesize = 0;
+			etacorem3_bank->magic_address = MAGIC_ADDR_M3ETA;
+			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
+			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_M3ETA;
+			etacorem3_bank->sram_max = ETA_COMMON_SRAM_SIZE_MAX;
+			etacorem3_bank->flash_base = 0;
+			etacorem3_bank->flash_size = 0;
+			etacorem3_bank->flash_max = ETA_COMMON_FLASH_SIZE_MAX;
+			etacorem3_bank->bootrom_erase_entry = 0;
+			etacorem3_bank->bootrom_write_entry = 0;
+			break;
+		case etacore_ecm3501:
+			etacorem3_bank->target_name = etacorePartnames[1];
+			etacorem3_bank->num_pages = ETA_COMMON_FLASH_NUM_PAGES_SUBZ;
+			etacorem3_bank->pagesize = ETA_COMMON_FLASH_PAGE_SIZE_SUBZ;
+			etacorem3_bank->magic_address = MAGIC_ADDR_SUBZ;
+			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_SUBZ;
+			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_SUBZ;
+			etacorem3_bank->sram_max = ETA_COMMON_SRAM_SIZE_MAX;
+			etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_SUBZ;
+			etacorem3_bank->flash_size = ETA_COMMON_FLASH_SIZE_SUBZ;
+			etacorem3_bank->flash_max = ETA_COMMON_FLASH_SIZE_MAX;
+			if (etacorem3_bank->fpga) {
+				etacorem3_bank->bootrom_erase_entry = BootROM_flash_erase_fpga;
+				etacorem3_bank->bootrom_write_entry = BootROM_flash_program_fpga;
+			} else {
+				etacorem3_bank->bootrom_erase_entry = BootROM_flash_erase_board;
+				etacorem3_bank->bootrom_write_entry = BootROM_flash_program_board;
+			}
+			break;
+		/* default: leave everything initialized to 0 (calloc). */
+		case etacore_unknown:
+		default:
+			etacorem3_bank->target_name = ARRAY_LAST(etacorePartnames);
+			LOG_ERROR("Unknown target %" PRId32 ".", etacorem3_bank->variant);
+			retval = ERROR_FAIL;
+			break;
+	}
+	LOG_INFO("set for target %s", etacorem3_bank->target_name);
 	return retval;
 }
 
@@ -429,6 +480,7 @@ typedef struct {
 static int common_erase_run(struct flash_bank *bank)
 {
 	int retval;
+	struct working_area *workarea = NULL;
 
 	/*
 	 * Load Magic numbers required for bootrom help function execution.
@@ -439,7 +491,6 @@ static int common_erase_run(struct flash_bank *bank)
 		goto err_write_code;
 	}
 
-	struct working_area *workarea;
 	struct reg_param reg_params[1];
 	struct armv7m_algorithm armv7m_algo;
 
@@ -624,6 +675,7 @@ static int etacorem3_write(struct flash_bank *bank,
 	uint32_t buffer_pointer = SRAM_BUFFER_START;
 	uint32_t maxbuffer;
 	uint32_t thisrun_count;
+	struct working_area *workarea = NULL;
 	int retval = ERROR_OK;
 
 	/* Bootrom uses 64 bit count. */
@@ -648,7 +700,6 @@ static int etacorem3_write(struct flash_bank *bank,
 	 */
 	maxbuffer = SRAM_BUFFER_SIZE;
 
-	struct working_area *workarea;
 	struct reg_param reg_params[1];
 
 	/*
@@ -807,48 +858,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 	/* sets default value for case statement. */
 	set_variant(bank);
 	LOG_DEBUG("variant: %" PRId32 ".", (int)etacorem3_bank->variant);
-
-	switch (etacorem3_bank->variant) {
-		case etacore_m3eta:
-			etacorem3_bank->target_name = etacorePartnames[0];
-			etacorem3_bank->num_pages = 0;
-			etacorem3_bank->pagesize = 0;
-			etacorem3_bank->magic_address = MAGIC_ADDR_M3ETA;
-			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
-			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_M3ETA;
-			etacorem3_bank->sram_max = ETA_COMMON_SRAM_SIZE_MAX;
-			etacorem3_bank->flash_base = 0;
-			etacorem3_bank->flash_size = 0;
-			etacorem3_bank->flash_max = ETA_COMMON_FLASH_SIZE_MAX;
-			etacorem3_bank->bootrom_erase_entry = 0;
-			etacorem3_bank->bootrom_write_entry = 0;
-			break;
-		case etacore_subzero:
-			etacorem3_bank->target_name = etacorePartnames[1];
-			etacorem3_bank->num_pages = ETA_COMMON_FLASH_NUM_PAGES_SUBZ;
-			etacorem3_bank->pagesize = ETA_COMMON_FLASH_PAGE_SIZE_SUBZ;
-			etacorem3_bank->magic_address = MAGIC_ADDR_SUBZ;
-			etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_SUBZ;
-			etacorem3_bank->sram_size = ETA_COMMON_SRAM_SIZE_SUBZ;
-			etacorem3_bank->sram_max = ETA_COMMON_SRAM_SIZE_MAX;
-			etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_SUBZ;
-			etacorem3_bank->flash_size = ETA_COMMON_FLASH_SIZE_SUBZ;
-			etacorem3_bank->flash_max = ETA_COMMON_FLASH_SIZE_MAX;
-			if (etacorem3_bank->fpga) {
-				etacorem3_bank->bootrom_erase_entry = BootROM_flash_erase_fpga;
-				etacorem3_bank->bootrom_write_entry = BootROM_flash_program_fpga;
-			} else {
-				etacorem3_bank->bootrom_erase_entry = BootROM_flash_erase_board;
-				etacorem3_bank->bootrom_write_entry = BootROM_flash_program_board;
-			}
-			break;
-		/* default: leave everything initialized to 0 (calloc). */
-		case etacore_unknown:
-		default:
-			etacorem3_bank->target_name = ARRAY_LAST(etacorePartnames);
-			LOG_ERROR("Unknown target %" PRId32 ".", etacorem3_bank->variant);
-			break;
-	}
+	set_variant_defaults(bank);
 
 	etacorem3_bank->sram_size  = get_memory_size(bank,
 			etacorem3_bank->sram_base,
@@ -859,6 +869,12 @@ static int etacorem3_probe(struct flash_bank *bank)
 			etacorem3_bank->flash_max,
 			(32*1024));
 
+	/* PID wasn't read correctly. */
+	if ((etacorem3_bank->flash_size == 0) && (etacorem3_bank->jedec == PID_ECM3501)) {
+		etacorem3_bank->jedec = PID_M3ETA;
+		set_variant(bank);
+		set_variant_defaults(bank);
+	}
 
 	/* provide this for the benefit of the NOR flash framework */
 	bank->base = (bank->bank_number * etacorem3_bank->flash_size) + \
@@ -878,13 +894,15 @@ static int etacorem3_probe(struct flash_bank *bank)
 		bank->sectors = NULL;
 	}
 
-	bank->sectors = calloc(bank->num_sectors, sizeof(struct flash_sector));
-	for (int i = 0; i < bank->num_sectors; i++) {
-		bank->sectors[i].offset = i * etacorem3_bank->pagesize;
-		bank->sectors[i].size = etacorem3_bank->pagesize;
-		bank->sectors[i].is_erased = -1;
-		/* No flash protect in this hardware. */
-		bank->sectors[i].is_protected = 0;
+	if (bank->num_sectors != 0) {
+		bank->sectors = calloc(bank->num_sectors, sizeof(struct flash_sector));
+		for (int i = 0; i < bank->num_sectors; i++) {
+			bank->sectors[i].offset = i * etacorem3_bank->pagesize;
+			bank->sectors[i].size = etacorem3_bank->pagesize;
+			bank->sectors[i].is_erased = -1;
+			/* No flash protect in this hardware. */
+			bank->sectors[i].is_protected = 0;
+		}
 	}
 
 	etacorem3_bank->probed = true;
@@ -1009,7 +1027,7 @@ FLASH_BANK_COMMAND_HANDLER(etacorem3_flash_bank_command)
 	 * workaround for times we cannot read PID.
 	 */
 	if ((etacorem3_bank->jedec == 0) && (etacorem3_bank->fpga))
-		etacorem3_bank->jedec = PID_SUBZERO;
+		etacorem3_bank->jedec = PID_ECM3501;
 
 	etacorem3_bank->probed = false;
 
