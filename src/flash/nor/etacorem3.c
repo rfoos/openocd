@@ -3,6 +3,7 @@
  * rfoos@solengtech.com
  *
  * Copyright (C) 2017-2018 by Eta Compute, Inc.
+ * www.etacompute.com
  *
  * All rights reserved.
  *
@@ -286,8 +287,8 @@ static int get_jedec_pid03(struct flash_bank *bank)
 	}
 
 	jedec_pid_container pid03;
-	uint32_t i,addr;
-	for (i= 0,addr= REG_JEDEC_PID0; i < 4; i++,addr+= 4) {
+	uint32_t i, addr;
+	for (i = 0, addr = REG_JEDEC_PID0; i < 4; i++, addr += 4) {
 		uint32_t buf;
 		int retval = target_read_u32(bank->target, addr, &buf);
 		pid03.pids[i] = (uint8_t) (buf & 0x000000FF);

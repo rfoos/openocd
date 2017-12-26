@@ -1,3 +1,12 @@
+@
+@ Eta Compute ECM35xx flash sector write algorithm.
+@
+@ Copyright (C) 2017-2018 Rick Foos <rfoos@solengtech.com>.
+@
+@ Copyright (C) 2017-2018 Eta Compute www.etacompute.com.
+@
+@ All rights reserved.
+@
 	.syntax unified
 	.cpu cortex-m3
 	.fpu softvfp
