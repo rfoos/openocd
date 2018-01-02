@@ -158,7 +158,7 @@ struct etacorem3_flash_bank {
 	uint32_t flash_size;	/**< Flash size calculated during probe. */
 	uint32_t flash_max;
 	uint32_t bootrom_erase_entry;
-	uint32_t bootrom_write_entry;	/**< BootROM_flash_program */
+	uint32_t bootrom_write_entry;	/**< bootrom_flash_program */
 
 	uint32_t jedec;	/**< chip info from rom PID. */
 	bool fpga;	/**< board or fpga from cfg file. */
@@ -169,10 +169,10 @@ struct etacorem3_flash_bank {
  * Jump table for ecm35xx bootroms with flash.
  */
 
-#define BootROM_flash_erase_board       (0x00000385)
-#define BootROM_flash_program_board     (0x000004C9)
-#define BootROM_flash_erase_fpga        (0x00000249)
-#define BootROM_flash_program_fpga      (0x000002CD)
+#define bootrom_flash_erase_board       (0x00000385)
+#define bootrom_flash_program_board     (0x000004C9)
+#define bootrom_flash_erase_fpga        (0x00000249)
+#define bootrom_flash_program_fpga      (0x000002CD)
 
 /**
  * Load and entry points of wrapper function.
@@ -366,11 +366,11 @@ static int set_variant_defaults(struct flash_bank *bank)
 			etacorem3_bank->flash_size = ETA_COMMON_FLASH_SIZE_SUBZ;
 			etacorem3_bank->flash_max = ETA_COMMON_FLASH_SIZE_MAX;
 			if (etacorem3_bank->fpga) {
-				etacorem3_bank->bootrom_erase_entry = BootROM_flash_erase_fpga;
-				etacorem3_bank->bootrom_write_entry = BootROM_flash_program_fpga;
+				etacorem3_bank->bootrom_erase_entry = bootrom_flash_erase_fpga;
+				etacorem3_bank->bootrom_write_entry = bootrom_flash_program_fpga;
 			} else {
-				etacorem3_bank->bootrom_erase_entry = BootROM_flash_erase_board;
-				etacorem3_bank->bootrom_write_entry = BootROM_flash_program_board;
+				etacorem3_bank->bootrom_erase_entry = bootrom_flash_erase_board;
+				etacorem3_bank->bootrom_write_entry = bootrom_flash_program_board;
 			}
 			break;
 		/* default: leave everything initialized to 0 (calloc). */
@@ -455,10 +455,10 @@ static const uint8_t erase_sector_code[] = {
 
 /** SRAM parameters for erase. */
 typedef struct {
-	uint32_t flashAddress;
-	uint32_t flashLength;
+	uint32_t flash_address;
+	uint32_t flash_length;
 	uint32_t options;
-	uint32_t BootROM_entry_point;
+	uint32_t bootrom_entry_point;
 	uint32_t retval;
 } eta_erase_interface;
 
@@ -469,10 +469,10 @@ static const uint8_t write_sector_code[] = {
 
 /** SRAM parameters for write. */
 typedef struct {
-	uint32_t flashAddress;
-	uint32_t flashLength;
-	uint32_t sramBuffer;
-	uint32_t BootROM_entry_point;
+	uint32_t flash_address;
+	uint32_t flash_length;
+	uint32_t sram_buffer;
+	uint32_t bootrom_entry_point;
 	uint32_t options;	/**< 1 - Write 512 bytes at a time. */
 	uint32_t retval;
 } eta_write_interface;
@@ -572,8 +572,8 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 		etacorem3_bank->flash_base,	/**< Start of flash. */
 		0x00000000,	/**< Length 0 for all. */
 		0x00000001,	/**< Option 1, mass erase. */
-		etacorem3_bank->bootrom_erase_entry,	/**< BootROM entry point. */
-		BREAKPOINT	/**< Return code from BootROM. */
+		etacorem3_bank->bootrom_erase_entry,	/**< bootrom entry point. */
+		BREAKPOINT	/**< Return code from bootrom. */
 	};
 	retval = target_write_buffer(target, SRAM_PARAM_START,
 			sizeof(eta_erase_interface), (uint8_t *)&sramargs);
@@ -636,8 +636,8 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 		etacorem3_bank->flash_base + (first * etacorem3_bank->pagesize),
 		(last - first + 1) * etacorem3_bank->pagesize,	/**< Length in bytes. */
 		0x00000000,	/**< Request page erase. */
-		etacorem3_bank->bootrom_erase_entry,	/**< BootROM entry point. */
-		BREAKPOINT	/**< Return code from BootROM. */
+		etacorem3_bank->bootrom_erase_entry,	/**< bootrom entry point. */
+		BREAKPOINT	/**< Return code from bootrom. */
 	};
 	retval = target_write_buffer(bank->target, SRAM_PARAM_START,
 			sizeof(eta_erase_interface), (uint8_t *)&sramargs);
@@ -672,7 +672,7 @@ static int etacorem3_write(struct flash_bank *bank,
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	struct target *target = bank->target;
 	uint32_t address = bank->base + offset;
-	uint32_t buffer_pointer = SRAM_BUFFER_START;
+	uint32_t sram_buffer = SRAM_BUFFER_START;
 	uint32_t maxbuffer;
 	uint32_t thisrun_count;
 	struct working_area *workarea = NULL;
@@ -731,7 +731,7 @@ static int etacorem3_write(struct flash_bank *bank,
 		/*
 		 * Load target Write Buffer.
 		 */
-		retval = target_write_buffer(target, buffer_pointer, thisrun_count, buffer);
+		retval = target_write_buffer(target, sram_buffer, thisrun_count, buffer);
 		CHECK_STATUS_BREAK(retval, "error writing buffer to target.");
 
 		LOG_DEBUG("address = 0x%08" PRIx32, address);
@@ -742,10 +742,10 @@ static int etacorem3_write(struct flash_bank *bank,
 		eta_write_interface sramargs = {
 			address,	/**< Start address in flash. */
 			thisrun_count,	/**< Length in bytes. */
-			buffer_pointer,
-			etacorem3_bank->bootrom_write_entry,	/**< BootROM entry point. */
+			sram_buffer,
+			etacorem3_bank->bootrom_write_entry,	/**< bootrom entry point. */
 			0x00000001,	/**< Option 1, write flash in 512 byte blocks. */
-			BREAKPOINT	/**< Return code from BootROM. */
+			BREAKPOINT	/**< Return code from bootrom. */
 		};
 		retval = target_write_buffer(bank->target, SRAM_PARAM_START,
 				sizeof(eta_write_interface), (uint8_t *)&sramargs);
@@ -909,7 +909,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 	return ERROR_OK;
 }
 
-static int emcorem3_auto_probe(struct flash_bank *bank)
+static int etacorem3_auto_probe(struct flash_bank *bank)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 
@@ -1104,7 +1104,7 @@ struct flash_driver etacorem3_flash = {
 	.write = etacorem3_write,
 	.read = default_flash_read,
 	.probe = etacorem3_probe,
-	.auto_probe = emcorem3_auto_probe,
+	.auto_probe = etacorem3_auto_probe,
 	.erase_check = default_flash_blank_check,
 	.protect_check = etacorem3_protect_check,
 	.info = get_etacorem3_info,

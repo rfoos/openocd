@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 #if OCD
-#include "eta_flash_common.h"
+#include "etacorem3_flash_common.h"
 #else
 #include "eta_chip.h"
 #endif
@@ -51,17 +51,17 @@
 
 /** SRAM parameters for write. */
 typedef struct {
-	uint32_t flashAddress;
-	uint32_t flashLength;
-	uint32_t sramBuffer;
-	uint32_t BootROM_entry_point;
+	uint32_t flash_address;
+	uint32_t flash_length;
+	uint32_t sram_buffer;
+	uint32_t bootrom_entry_point;
 	uint32_t options;
 	uint32_t retval;
 } eta_write_interface;
 
 #if OCD
 /** Flash helper function for erase. */
-BootROM_flash_program_T BootROM_flash_program;
+bootrom_flash_program_T bootrom_flash_program;
 #else
 SET_MAGIC_NUMBERS
 #endif
@@ -69,88 +69,87 @@ SET_MAGIC_NUMBERS
 /** Write up to a sector to flash. */
 int main()
 {
-	eta_write_interface *pFlashInterface = (eta_write_interface *) SRAM_PARAM_START;
-	uint32_t flashAddress = pFlashInterface->flashAddress;
-	uint32_t flashLength = pFlashInterface->flashLength;
-	uint32_t flashAddressMax = flashAddress + flashLength;
-	uint32_t *sramBuffer = (uint32_t *) pFlashInterface->sramBuffer;
+	eta_write_interface *flash_interface = (eta_write_interface *) SRAM_PARAM_START;
+	uint32_t flash_address = flash_interface->flash_address;
+	uint32_t flash_length = flash_interface->flash_length;
+	uint32_t flash_address_max = flash_address + flash_length;
+	uint32_t *sram_buffer = (uint32_t *) flash_interface->sram_buffer;
 
-	if (flashLength == 0) {
-		pFlashInterface->retval = 0;
+	if (flash_length == 0) {
+		flash_interface->retval = 0;
 		goto parameter_error;
 	}
 
 	/* allow a default value. */
-	if (sramBuffer == NULL)
-		sramBuffer = (uint32_t *) SRAM_BUFFER_START;
+	if (sram_buffer == NULL)
+		sram_buffer = (uint32_t *) SRAM_BUFFER_START;
 
-	if (flashAddress < ETA_COMMON_FLASH_BASE) {
-		pFlashInterface->retval = 1;
+	if (flash_address < ETA_COMMON_FLASH_BASE) {
+		flash_interface->retval = 1;
 		goto parameter_error;
 	}
-	/* Breakpoint is -2, use different numbers. */
-	if (flashAddress >= ETA_COMMON_FLASH_MAX) {
-		pFlashInterface->retval = 2;
-		pFlashInterface->flashAddress;
+	/* Breakpoint is -2, don't use negative number returns. */
+	if (flash_address >= ETA_COMMON_FLASH_MAX) {
+		flash_interface->retval = 2;
+		flash_interface->flash_address;
 		goto parameter_error;
 	}
-	if (flashAddressMax > ETA_COMMON_FLASH_MAX) {
-		pFlashInterface->retval = 3;
+	if (flash_address_max > ETA_COMMON_FLASH_MAX) {
+		flash_interface->retval = 3;
 		goto parameter_error;
 	}
 
 #if OCD
 	/* Set our Helper function entry point from interface. */
-	if (pFlashInterface->BootROM_entry_point) {
-		BootROM_flash_program = \
-			(BootROM_flash_program_T) pFlashInterface->BootROM_entry_point;
+	if (flash_interface->bootrom_entry_point) {
+		bootrom_flash_program = \
+			(bootrom_flash_program_T) flash_interface->bootrom_entry_point;
 	} else {
-		BootROM_flash_program = \
-			(BootROM_flash_program_T) BootROM_flash_program_fpga;
+		bootrom_flash_program = \
+			(bootrom_flash_program_T) bootrom_flash_program_fpga;
 	}
 #endif
 
 	/*
 	 * Board and FPGA BootrROMs use 64 bit counts for length.
 	 */
-	uint32_t Count = (flashLength >> 3);
+	uint32_t count = (flash_length >> 3);
 
-	if (pFlashInterface->options == 1) {
+	if (flash_interface->options == 1) {
 
-		const uint32_t BlockSize = 64;	/* DWord count. */
-		const uint32_t IncrementSize = 512;	/* Bytes to increment Flash Address. */
+		const uint32_t block_size = 64;	/* DWord count. */
+		const uint32_t increment_size = 512;	/* Bytes to increment Flash Address. */
 		/*
 		 * Due to a bug in this version of the helper, we have to program
 		 * the whole page in blocks of 512 bytes.
 		 */
-		uint32_t NumExtra = Count%BlockSize;
-		uint32_t NumBlock = Count/BlockSize + (NumExtra ? 1 : 0);
+		uint32_t num_extra = count%block_size;
+		uint32_t num_block = count/block_size + (num_extra ? 1 : 0);
 
-		uint32_t TmpAdr = flashAddress;
-		uint32_t *TmpSrc = sramBuffer;
+		uint32_t tmp_adr = flash_address;
+		uint32_t *tmp_src = sram_buffer;
 
-		for (int I = 0; I < NumBlock; I++) {
+		for (int I = 0; I < num_block; I++) {
 
-			if ((NumExtra != 0) && \
-				(I == (NumBlock - 1))) {
-				ETA_CSP_FLASH_PROGRAM(TmpAdr, TmpSrc, NumExtra);
+			if ((num_extra != 0) && \
+				(I == (num_block - 1))) {
+				ETA_CSP_FLASH_PROGRAM(tmp_adr, tmp_src, num_extra);
 			} else
-				ETA_CSP_FLASH_PROGRAM(TmpAdr, TmpSrc, BlockSize);
+				ETA_CSP_FLASH_PROGRAM(tmp_adr, tmp_src, block_size);
 
-			TmpAdr += IncrementSize;	/* Always bytes. */
-			TmpSrc += 128;	/* Address Increment. */
+			tmp_adr += increment_size;	/* Always bytes. */
+			tmp_src += 128;	/* Address Increment. */
 		}
-	} else {
-		ETA_CSP_FLASH_PROGRAM(flashAddress, sramBuffer, Count);
-	}
+	} else
+		ETA_CSP_FLASH_PROGRAM(flash_address, sram_buffer, count);
 
 	/* Can't get an RC from bootrom, guess it worked. */
-	pFlashInterface->retval = 0;
+	flash_interface->retval = 0;
 
 parameter_error:
 #if OCD
 	asm ("    BKPT      #0");
 #else
-	return pFlashInterface->retval;
+	return flash_interface->retval;
 #endif
 }

@@ -25,7 +25,7 @@ LINKER_OPTS     +=  -Xlinker -Map=$@.map
 
 all: erase.inc write.inc
 
-erase.elf write.elf: eta_flash_common.h
+erase.elf write.elf: etacorem3_flash_common.h
 
 %.bin:	%.elf
 	$(OBJCOPY) --verbose -O binary "$<"  "$@"

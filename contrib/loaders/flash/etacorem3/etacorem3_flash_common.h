@@ -32,21 +32,22 @@
 #define BOOTROM_FLASH_TPGS_COUNT   (0x28)
 #define BOOTROM_FLASH_TPROG_COUNT  (0x50)
 
-#define ETA_CSP_FLASH_MASS_ERASE()      BootROM_flash_erase(0x01000000, 1, BOOTROM_FLASH_TNVS_COUNT, \
+#define ETA_CSP_FLASH_MASS_ERASE()      bootrom_flash_erase(0x01000000, 1, BOOTROM_FLASH_TNVS_COUNT, \
 		BOOTROM_FLASH_TERASE_COUNT,                  \
 		BOOTROM_FLASH_TNVH_COUNT,                    \
 		BOOTROM_FLASH_TRCV_COUNT);
 
-#define ETA_CSP_FLASH_PAGE_ERASE(ADDR)  BootROM_flash_erase(ADDR, 0, BOOTROM_FLASH_TNVS_COUNT,      \
+#define ETA_CSP_FLASH_PAGE_ERASE(ADDR)  bootrom_flash_erase(ADDR, 0, BOOTROM_FLASH_TNVS_COUNT,      \
 		BOOTROM_FLASH_TERASE_COUNT,                  \
 		BOOTROM_FLASH_TNVH_COUNT,                    \
 		BOOTROM_FLASH_TRCV_COUNT);
 
-#define ETA_CSP_FLASH_PROGRAM(ADDR, SRCPTR, COUNT)  BootROM_flash_program(ADDR, SRCPTR, COUNT,      \
-		BOOTROM_FLASH_TNVS_COUNT,                    \
-		BOOTROM_FLASH_TPGS_COUNT,                    \
-		BOOTROM_FLASH_TPROG_COUNT,                   \
-		BOOTROM_FLASH_TNVH_COUNT,                    \
+#define ETA_CSP_FLASH_PROGRAM(ADDR, SRCPTR, COUNT)          \
+	bootrom_flash_program(ADDR, SRCPTR, COUNT,  \
+		BOOTROM_FLASH_TNVS_COUNT,           \
+		BOOTROM_FLASH_TPGS_COUNT,           \
+		BOOTROM_FLASH_TPROG_COUNT,          \
+		BOOTROM_FLASH_TNVH_COUNT,           \
 		BOOTROM_FLASH_TRCV_COUNT);
 
 #define ETA_COMMON_SRAM_MAX  0x10020000
@@ -66,17 +67,17 @@
  * Bootrom Entry points for ECM3501.
  */
 
-#define BootROM_flash_erase_board       (0x00000385)
-#define BootROM_flash_program_board     (0x000004C9)
-#define BootROM_flash_erase_fpga        (0x00000249)
-#define BootROM_flash_program_fpga      (0x000002CD)
+#define bootrom_flash_erase_board       (0x00000385)
+#define bootrom_flash_program_board     (0x000004C9)
+#define bootrom_flash_erase_fpga        (0x00000249)
+#define bootrom_flash_program_fpga      (0x000002CD)
 
 /** Flash helper function for erase. */
-typedef void (*BootROM_flash_erase_T)(uint32_t addr, uint32_t options,
+typedef void (*bootrom_flash_erase_T)(uint32_t addr, uint32_t options,
 	uint32_t Tnvs_count, uint32_t Terase_count,
 	uint32_t Tnvh_count, uint32_t Trcv_count);
 /** Flash helper function for write. */
-typedef void (*BootROM_flash_program_T)(uint32_t addr, uint32_t *data, uint32_t num_data,
+typedef void (*bootrom_flash_program_T)(uint32_t addr, uint32_t *data, uint32_t num_data,
 	uint32_t Tnvs_count, uint32_t Tpgs_count, uint32_t Tprog_count,
 	uint32_t Tnvh_count, uint32_t T_rcv_count);
 

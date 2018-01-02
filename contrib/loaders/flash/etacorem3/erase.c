@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 #if OCD
-#include "eta_flash_common.h"
+#include "etacorem3_flash_common.h"
 #else
 #include "eta_chip.h"
 #endif
@@ -51,69 +51,69 @@
 
 /** SRAM parameters for erase. */
 typedef struct {
-	uint32_t flashAddress;
-	uint32_t flashLength;
+	uint32_t flash_address;
+	uint32_t flash_length;
 	uint32_t options;	/**< 1 - mass erase. */
-	uint32_t BootROM_entry_point;
+	uint32_t bootrom_entry_point;
 	uint32_t retval;
 } eta_erase_interface;
 
 #if OCD
 /** Flash helper function for erase. */
-BootROM_flash_erase_T BootROM_flash_erase;
+bootrom_flash_erase_T bootrom_flash_erase;
 #else
 SET_MAGIC_NUMBERS;
 #endif
 
 int main()
 {
-	eta_erase_interface *pFlashInterface = (eta_erase_interface *) SRAM_PARAM_START;
-	uint32_t flashAddress = pFlashInterface->flashAddress;
-	uint32_t flashLength = pFlashInterface->flashLength;
-	uint32_t flashAddressMax = flashAddress + flashLength;
+	eta_erase_interface *flash_interface = (eta_erase_interface *) SRAM_PARAM_START;
+	uint32_t flash_address = flash_interface->flash_address;
+	uint32_t flash_length = flash_interface->flash_length;
+	uint32_t flash_address_max = flash_address + flash_length;
 
-	if (flashAddress <  ETA_COMMON_FLASH_BASE) {
-		pFlashInterface->retval = 1;
+	if (flash_address <  ETA_COMMON_FLASH_BASE) {
+		flash_interface->retval = 1;
 		goto parameter_error;
 	}
 	/* Breakpoint is -2, use different numbers. */
-	if (flashAddress >= ETA_COMMON_FLASH_MAX) {
-		pFlashInterface->retval = 2;
+	if (flash_address >= ETA_COMMON_FLASH_MAX) {
+		flash_interface->retval = 2;
 		goto parameter_error;
 	}
-	if (flashAddressMax > ETA_COMMON_FLASH_MAX) {
-		pFlashInterface->retval = 3;
+	if (flash_address_max > ETA_COMMON_FLASH_MAX) {
+		flash_interface->retval = 3;
 		goto parameter_error;
 	}
 
 #if OCD
 	/* Set our Helper function entry point from interface. */
-	if (pFlashInterface->BootROM_entry_point) {
-		BootROM_flash_erase = \
-			(BootROM_flash_erase_T) pFlashInterface->BootROM_entry_point;
+	if (flash_interface->bootrom_entry_point) {
+		bootrom_flash_erase = \
+			(bootrom_flash_erase_T) flash_interface->bootrom_entry_point;
 	} else {
-		pFlashInterface->retval = 4;
+		flash_interface->retval = 4;
 		goto parameter_error;
 	}
 #endif
 
 	/* erase all the pages we will work with. */
-	if (pFlashInterface->options == 1) {
+	if (flash_interface->options == 1) {
 		ETA_CSP_FLASH_MASS_ERASE();
 	} else {
-		while (flashAddress < flashAddressMax) {
+		while (flash_address < flash_address_max) {
 			uint32_t eraseAddress;
-			eraseAddress = (flashAddress & ETA_COMMON_FLASH_PAGE_ADDR_MASK);
+			eraseAddress = (flash_address & ETA_COMMON_FLASH_PAGE_ADDR_MASK);
 			ETA_CSP_FLASH_PAGE_ERASE(eraseAddress);
-			flashAddress += ETA_COMMON_FLASH_PAGE_SIZE;
+			flash_address += ETA_COMMON_FLASH_PAGE_SIZE;
 		}
 	}
-	pFlashInterface->retval = 0;
+	flash_interface->retval = 0;
 
 parameter_error:
 #if OCD
 	asm ("    BKPT      #0");
 #else
-	return pFlashInterface->retval;
+	return flash_interface->retval;
 #endif
 }
