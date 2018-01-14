@@ -24,6 +24,8 @@
 #ifndef _ETA_FLASH_COMMON_H
 #define _ETA_FLASH_COMMON_H
 
+#ifdef SIMULATION
+// use these constants for testing in chip simulation.
 #define BOOTROM_FLASH_TNVS_COUNT   (0x10)
 #define BOOTROM_FLASH_TRE_COUNT    (0x28)
 #define BOOTROM_FLASH_TNVH_COUNT   (0x300)
@@ -31,6 +33,15 @@
 #define BOOTROM_FLASH_TERASE_COUNT (0x30)
 #define BOOTROM_FLASH_TPGS_COUNT   (0x28)
 #define BOOTROM_FLASH_TPROG_COUNT  (0x50)
+#else
+#define BOOTROM_FLASH_TNVS_COUNT   (0x10)
+#define BOOTROM_FLASH_TRE_COUNT    (0x28)
+#define BOOTROM_FLASH_TNVH_COUNT   (0x300)
+#define BOOTROM_FLASH_TRCV_COUNT   (0x30)
+#define BOOTROM_FLASH_TERASE_COUNT (0x800000)
+#define BOOTROM_FLASH_TPGS_COUNT   (0x38)
+#define BOOTROM_FLASH_TPROG_COUNT  (0x78)
+#endif
 
 #define ETA_CSP_FLASH_MASS_ERASE()      bootrom_flash_erase(0x01000000, 1, BOOTROM_FLASH_TNVS_COUNT, \
 		BOOTROM_FLASH_TERASE_COUNT,                  \
@@ -64,13 +75,38 @@
 #define ETA_COMMON_FLASH_PAGE_ADDR_MASK 0xFFFFF000
 
 /*
- * Bootrom Entry points for ECM3501.
+ * SRAM Address for magic numbers.
  */
 
-#define bootrom_flash_erase_board       (0x00000385)
-#define bootrom_flash_program_board     (0x000004C9)
-#define bootrom_flash_erase_fpga        (0x00000249)
-#define bootrom_flash_program_fpga      (0x000002CD)
+#define MAGIC_ADDR_M3ETA    (0x0001FFF0)
+#define MAGIC_ADDR_ECM3501  (0x1001FFF0)
+
+/**
+ * Load and entry points of wrapper function.
+ * @note Depends on -work-area-phys in target file.
+ */
+#define SRAM_ENTRY_POINT        (0x10000000)
+/** Location wrapper functions look for parameters, and top of stack. */
+#define SRAM_PARAM_START        (0x10001000)
+/** Target buffer start address for write operations. */
+#define SRAM_BUFFER_START       (0x10002000)
+/** Target buffer size. */
+#define SRAM_BUFFER_SIZE        (0x00004000)
+
+/*
+ * Jump table for ecm35xx bootroms with flash.
+ */
+
+#define BOOTROM_FLASH_ERASE_BOARD       (0x00000385)
+#define BOOTROM_FLASH_PROGRAM_BOARD     (0x000004C9)
+#define BOOTROM_FLASH_ERASE_FPGA        (0x00000249)
+#define BOOTROM_FLASH_PROGRAM_FPGA      (0x000002CD)
+
+/*
+ * Check for BootROM version with values at jumptable locations.
+ */
+#define CHECK_FLASH_ERASE_FPGA          (0x00b089b4)
+#define CHECK_FLASH_PROGRAM_FPGA        (0x00b089b4)
 
 /** Flash helper function for erase. */
 typedef void (*bootrom_flash_erase_T)(uint32_t addr, uint32_t options,

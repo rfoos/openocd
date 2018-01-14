@@ -106,7 +106,7 @@ int main()
 			(bootrom_flash_program_T) flash_interface->bootrom_entry_point;
 	} else {
 		bootrom_flash_program = \
-			(bootrom_flash_program_T) bootrom_flash_program_fpga;
+			(bootrom_flash_program_T) BOOTROM_FLASH_PROGRAM_FPGA;
 	}
 #endif
 

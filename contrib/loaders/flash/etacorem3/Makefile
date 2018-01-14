@@ -17,7 +17,7 @@ CC_OPTS	+= -DOCD -DPRTCC
 LINKER_SCRIPT	:= etacorem3.ld
 LINKER_OPTS	:= --specs=nosys.specs -mcpu=cortex-m3 -mthumb
 LINKER_OPTS     += -mlittle-endian -O0 -fmessage-length=0 -fsigned-char
-LINKER_OPTS     += -ffunction-sections -fdata-sections -gc-sections
+LINKER_OPTS     += -ffunction-sections -fdata-sections -Wl,--gc-sections
 LINKER_OPTS     += -nostartfiles -nostdlib
 LINKER_OPTS     +=  -Xlinker -Map=$@.map
 
