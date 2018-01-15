@@ -774,6 +774,12 @@ static int etacorem3_probe(struct flash_bank *bank)
 	else
 		LOG_DEBUG("Probing part.");
 
+	/* Load for ECM3501. */
+	etacorem3_bank->sram_base =  ETA_COMMON_SRAM_BASE_SUBZ;
+	etacorem3_bank->sram_max =  ETA_COMMON_SRAM_MAX_SUBZ;
+	etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_SUBZ;
+	etacorem3_bank->flash_max = ETA_COMMON_FLASH_MAX_SUBZ;
+	
 	/* Do a size test. */
 	etacorem3_bank->sram_size  = get_memory_size(bank,
 			etacorem3_bank->sram_base,
