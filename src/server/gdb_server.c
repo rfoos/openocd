@@ -991,7 +991,9 @@ static int gdb_new_connection(struct connection *connection)
 	}
 
 	gdb_actual_connections++;
-	LOG_DEBUG("New GDB Connection: %d, Target %s, state: %s",
+	log_printf_lf(all_targets->next != NULL ? LOG_LVL_INFO : LOG_LVL_DEBUG,
+			__FILE__, __LINE__, __func__,
+			"New GDB Connection: %d, Target %s, state: %s",
 			gdb_actual_connections,
 			target_name(target),
 			target_state_name(target));
@@ -2413,13 +2415,13 @@ static int gdb_query_packet(struct connection *connection,
 			char gdb_reply[10];
 			char *separator;
 			uint32_t checksum;
-			uint32_t addr = 0;
+			target_addr_t addr = 0;
 			uint32_t len = 0;
 
 			/* skip command character */
 			packet += 5;
 
-			addr = strtoul(packet, &separator, 16);
+			addr = strtoull(packet, &separator, 16);
 
 			if (*separator != ',') {
 				LOG_ERROR("incomplete read memory packet received, dropping connection");
@@ -3088,7 +3090,13 @@ static int gdb_target_add_one(struct target *target)
 		if (!*end) {
 			if (parse_long(gdb_port_next, &portnumber) == ERROR_OK) {
 				free(gdb_port_next);
-				gdb_port_next = alloc_printf("%d", portnumber+1);
+				if (portnumber) {
+					gdb_port_next = alloc_printf("%d", portnumber+1);
+				} else {
+					/* Don't increment if gdb_port is 0, since we're just
+					 * trying to allocate an unused port. */
+					gdb_port_next = strdup("0");
+				}
 			}
 		}
 	}
