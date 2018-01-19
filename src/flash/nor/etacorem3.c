@@ -43,27 +43,39 @@
 /* SRAM Address for magic numbers. */
 
 #define MAGIC_ADDR_M3ETA    (0x0001FFF0)
-#define MAGIC_ADDR_ECM3500  (0x1001FFF0)
+#define MAGIC_ADDR_ECM3501  (0x1001FFF0)
 
-/* Max flash/sram size all supported parts. */
+/* Max flash/sram common size all supported parts. */
 
 #define ETA_COMMON_SRAM_SIZE_MAX        (0x00020000)
 #define ETA_COMMON_FLASH_SIZE_MAX       (0x00080000)
 
-/* Supported parts: ECM3501 */
+/* M3ETA */
 
-#define ETA_COMMON_SRAM_MAX_SUBZ  (0x10020000)
-#define ETA_COMMON_SRAM_BASE_SUBZ (0x10000000)
-#define ETA_COMMON_SRAM_SIZE_SUBZ \
-	(ETA_COMMON_SRAM_MAX_SUBZ - ETA_COMMON_SRAM_BASE_SUBZ)
+#define ETA_COMMON_SRAM_MAX_M3ETA  (0x00020000)
+#define ETA_COMMON_SRAM_BASE_M3ETA (0x00000000)
+#define ETA_COMMON_SRAM_SIZE_M3ETA \
+	(ETA_COMMON_SRAM_MAX_M3ETA  - ETA_COMMON_SRAM_BASE_M3ETA)
 
-#define ETA_COMMON_FLASH_MAX_SUBZ  0x01080000
-#define ETA_COMMON_FLASH_BASE_SUBZ 0x01000000
-#define ETA_COMMON_FLASH_SIZE_SUBZ \
-	(ETA_COMMON_FLASH_MAX_SUBZ - ETA_COMMON_FLASH_BASE_SUBZ)
-#define ETA_COMMON_FLASH_PAGE_SIZE_SUBZ (4096)
-#define ETA_COMMON_FLASH_NUM_PAGES_SUBZ \
-	(ETA_COMMON_FLASH_SIZE_SUBZ / ETA_COMMON_FLASH_PAGE_SIZE_SUBZ)
+#define ETA_COMMON_FLASH_MAX_M3ETA  0
+#define ETA_COMMON_FLASH_BASE_M3ETA 0
+#define ETA_COMMON_FLASH_SIZE_M3ETA 0
+
+/* ECM3501 */
+
+#define ETA_COMMON_SRAM_MAX_ECM3501  (0x10020000)
+#define ETA_COMMON_SRAM_BASE_ECM3501 (0x10000000)
+#define ETA_COMMON_SRAM_SIZE_ECM3501 \
+	(ETA_COMMON_SRAM_MAX_ECM3501 - ETA_COMMON_SRAM_BASE_ECM3501)
+
+#define ETA_COMMON_FLASH_MAX_ECM3501  0x01080000
+#define ETA_COMMON_FLASH_BASE_ECM3501 0x01000000
+#define ETA_COMMON_FLASH_SIZE_ECM3501 \
+	(ETA_COMMON_FLASH_MAX_ECM3501 - ETA_COMMON_FLASH_BASE_ECM3501)
+
+#define ETA_COMMON_FLASH_PAGE_SIZE_ECM3501 (4096)
+#define ETA_COMMON_FLASH_NUM_PAGES_ECM3501 \
+	(ETA_COMMON_FLASH_SIZE_ECM3501 / ETA_COMMON_FLASH_PAGE_SIZE_ECM3501)
 #define ETA_COMMON_FLASH_PAGE_ADDR_BITS (12)
 #define ETA_COMMON_FLASH_PAGE_ADDR_MASK (0xFFFFF000)
 
@@ -134,9 +146,10 @@ struct etacorem3_flash_bank {
 	uint32_t flash_max;
 	uint32_t bootrom_erase_entry;
 	uint32_t bootrom_write_entry;	/**< bootrom_flash_program */
-
+#if 0
 	uint32_t jedec;	/**< chip info from rom PID. */
-	bool fpga;	/**< board or fpga from cfg file. */
+#endif
+	int fpga;	/**< m3eta, ecm3501 (chip or fpga). */
 	bool probed;	/**< Flash bank has been probed. */
 };
 
@@ -264,9 +277,10 @@ static int get_jedec_pid03(struct flash_bank *bank)
 }
 #endif
 /*
- * Jump table for ecm35xx bootroms with flash.
+ * Jump table for ecm35xx bootroms.
  */
-
+#define BOOTROM_LOADER_FLASH_M3ETA	(0x000004F8)
+#define BOOTROM_LOADER_FPGA_M3ETA	(0x00000564)
 #define BOOTROM_FLASH_ERASE_BOARD       (0x00000385)
 #define BOOTROM_FLASH_PROGRAM_BOARD     (0x000004C9)
 #define BOOTROM_FLASH_ERASE_FPGA        (0x00000249)
@@ -275,8 +289,12 @@ static int get_jedec_pid03(struct flash_bank *bank)
 /*
  * Check for BootROM version with values at jump table locations.
  */
+#define CHECK_FLASH_M3ETA (0xb08cb580)
+#define CHECK_FPGA_M3ETA (0xb08cb580)
 #define CHECK_FLASH_ERASE_FPGA          (0x00b089b4)
 #define CHECK_FLASH_PROGRAM_FPGA        (0x00b089b4)
+#define CHECK_FLASH_ERASE_BOARD          (0x00b089b4)
+#define CHECK_FLASH_PROGRAM_BOARD        (0x00b089b4)
 
 /**
  * Get BootROM variant from BootRom address contents.
@@ -285,22 +303,42 @@ static int get_jedec_pid03(struct flash_bank *bank)
 static int get_variant(struct flash_bank *bank)
 {
 	/* Detect chip or FPGA bootROM. */
-	uint32_t check_erase, check_program;
+	uint32_t check_erase_fpga, check_program_fpga;
+	uint32_t check_erase_board, check_program_board;
+	uint32_t check_flash_m3eta, check_fpga_m3eta;
 	int retval;
-	retval = target_read_u32(bank->target, BOOTROM_FLASH_PROGRAM_FPGA, &check_program);
+	/* ECM3501 FPGA */
+	retval = target_read_u32(bank->target, BOOTROM_FLASH_PROGRAM_FPGA, &check_program_fpga);
 	if (retval == ERROR_OK)
-		retval = target_read_u32(bank->target, BOOTROM_FLASH_ERASE_FPGA, &check_erase);
+		retval = target_read_u32(bank->target, BOOTROM_FLASH_ERASE_FPGA, &check_erase_fpga);
+	/* ECM3501 CHIP */
+	if (retval == ERROR_OK)
+		retval = target_read_u32(bank->target, BOOTROM_FLASH_PROGRAM_BOARD, &check_program_board);
+	if (retval == ERROR_OK)
+		retval = target_read_u32(bank->target, BOOTROM_FLASH_ERASE_BOARD, &check_erase_board);
+	/* M3ETA CHIP */
+	if (retval == ERROR_OK)
+		retval = target_read_u32(bank->target, BOOTROM_LOADER_FLASH_M3ETA, &check_flash_m3eta);
+	if (retval == ERROR_OK)
+		retval = target_read_u32(bank->target, BOOTROM_LOADER_FPGA_M3ETA, &check_fpga_m3eta);
 	/** @todo As more BootROM versions become available, change this to a table lookup. */
 	if (retval == ERROR_OK) {
-		if ((check_program == CHECK_FLASH_PROGRAM_FPGA) && \
-			(check_erase == CHECK_FLASH_ERASE_FPGA))
+		if ((check_program_fpga == CHECK_FLASH_PROGRAM_FPGA) && \
+			(check_erase_fpga == CHECK_FLASH_ERASE_FPGA))
 			retval = 1;	/* fpga bootrom */
+		else if ((check_program_board == CHECK_FLASH_PROGRAM_BOARD) && \
+			(check_erase_board == CHECK_FLASH_ERASE_BOARD))
+			retval = 0;	/* chip bootrom */
+		else if ((check_flash_m3eta == CHECK_FLASH_M3ETA) && \
+			(check_fpga_m3eta == CHECK_FPGA_M3ETA))
+			retval = 2;	/* m3eta bootrom */
 		else
 			retval = 0;	/* chip bootrom */
 	} else {
 		LOG_WARNING("BootROM entry points could not be read (%d).", retval);
-		retval = 0;	/* Default is chip. */
+		retval = 0;	/* Default is ECM3501 chip. */
 	}
+	LOG_DEBUG("Bootrom version: %d", retval);
 	return retval;
 }
 
@@ -340,7 +378,7 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 	/* Chip has no Memory. */
 	retval = target_read_u32(bank->target, startaddress, &data);
 	if (retval != ERROR_OK) {
-		LOG_ERROR("Memory not found at 0x%08" PRIx32 ".", startaddress);
+		LOG_ERROR("Memory not found at 0x%08X.", startaddress);
 		return 0;
 	}
 
@@ -356,7 +394,7 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 	/* Restore output level. */
 	debug_level = save_debug_level;
 
-	LOG_DEBUG("Memory starting at 0x%08" PRIx32 " size: %" PRIu32 " KB.",
+	LOG_DEBUG("Memory starting at 0x%08X size: %d KB.",
 		startaddress, i/1024);
 	return i;
 }
@@ -774,30 +812,47 @@ static int etacorem3_probe(struct flash_bank *bank)
 	else
 		LOG_DEBUG("Probing part.");
 
-	/* Load for ECM3501. */
-	etacorem3_bank->sram_base =  ETA_COMMON_SRAM_BASE_SUBZ;
-	etacorem3_bank->sram_max =  ETA_COMMON_SRAM_MAX_SUBZ;
-	etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_SUBZ;
-	etacorem3_bank->flash_max = ETA_COMMON_FLASH_MAX_SUBZ;
-	
-	/* Do a size test. */
-	etacorem3_bank->sram_size  = get_memory_size(bank,
-			etacorem3_bank->sram_base,
-			etacorem3_bank->sram_max,
-			(32*1024));
-	etacorem3_bank->flash_size = get_memory_size(bank,
-			etacorem3_bank->flash_base,
-			etacorem3_bank->flash_max,
-			(32*1024));
 	/* Check bootrom version, get_variant sets default, no errors. */
+	etacorem3_bank->target_name = "ECM3501";
 	etacorem3_bank->fpga = get_variant(bank);
 	if (etacorem3_bank->fpga == 0) {
 		etacorem3_bank->bootrom_erase_entry = BOOTROM_FLASH_ERASE_BOARD;
 		etacorem3_bank->bootrom_write_entry = BOOTROM_FLASH_PROGRAM_BOARD;
-	} else {
+	/* Load for ECM3501. */
+	etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_ECM3501;
+	etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_ECM3501;
+	etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_ECM3501;
+	etacorem3_bank->flash_max = ETA_COMMON_FLASH_MAX_ECM3501;
+
+	} else if (etacorem3_bank->fpga == 1) {
 		etacorem3_bank->bootrom_erase_entry = BOOTROM_FLASH_ERASE_FPGA;
 		etacorem3_bank->bootrom_write_entry = BOOTROM_FLASH_PROGRAM_FPGA;
+	/* Load for ECM3501. */
+	etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_ECM3501;
+	etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_ECM3501;
+	etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_ECM3501;
+	etacorem3_bank->flash_max = ETA_COMMON_FLASH_MAX_ECM3501;
+
+	} else if (etacorem3_bank->fpga == 2) {
+		etacorem3_bank->target_name = "M3ETA";
+		etacorem3_bank->bootrom_erase_entry = 0;
+		etacorem3_bank->bootrom_write_entry = 0;
+	/* Load for M3ETA. */
+	etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
+	etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_M3ETA;
+	etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_M3ETA;
+	etacorem3_bank->flash_max = ETA_COMMON_FLASH_MAX_M3ETA;
+
 	}
+	/* Do a size test. */
+	etacorem3_bank->sram_size  = get_memory_size(bank,
+			etacorem3_bank->sram_base,
+			etacorem3_bank->sram_max,
+			(16*1024));
+	etacorem3_bank->flash_size = get_memory_size(bank,
+			etacorem3_bank->flash_base,
+			etacorem3_bank->flash_max,
+			(32*1024));
 	/* provide this for the benefit of the NOR flash framework */
 	bank->base = (bank->bank_number * etacorem3_bank->flash_size) + \
 		etacorem3_bank->flash_base;
@@ -858,10 +913,10 @@ static int get_etacorem3_info(struct flash_bank *bank, char *buf, int buf_size)
 	int printed = snprintf(buf,
 			buf_size,
 			"\nETA Compute %s. %s"
-			"\n\tTotal Flash: %" PRIu32 " KB, Sram: %" PRIu32 " KB."
-			"\n\tStart Flash: 0x%08" PRIx32 ", Sram: 0x%08" PRIx32 ".",
+			"\n\tTotal Flash: %d KB, Sram: %d KB."
+			"\n\tStart Flash: 0x%08X, Sram: 0x%08X.",
 			etacorem3_bank->target_name,
-			(etacorem3_bank->fpga ? "FPGA" : ""),
+			((etacorem3_bank->fpga == 1) ? "FPGA" : ""),
 			(etacorem3_bank->flash_size/1024),
 			(etacorem3_bank->sram_size/1024)
 			,
