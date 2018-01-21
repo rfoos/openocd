@@ -137,7 +137,7 @@ struct etacorem3_flash_bank {
 	/* part specific info needed by driver. */
 
 	const char *target_name;
-	uint8_t *magic_address;	/**< Location of keys in sram. */
+	target_addr_t magic_address;	/**< Location of keys in sram. */
 	uint32_t sram_base;	/**< SRAM Start Address. */
 	uint32_t sram_size;	/**< SRAM size calculated during probe. */
 	uint32_t sram_max;
@@ -222,6 +222,14 @@ static const uint32_t magic_numbers[] = {
  * Utilities
  */
 
+static int target_write_u32_array(struct target *target, target_addr_t address, 
+		uint32_t count, const uint32_t *srcbuf)
+{
+	for (uint32_t i=0; i<count; i++)
+		target_write_u32(target, (target_addr_t)((uintptr_t)address + (i * 4)), srcbuf[i]);
+	return ERROR_OK;
+}
+		
 /**
  * Set magic numbers in target sram.
  * @param bank information.
@@ -231,7 +239,7 @@ static int set_magic_numbers(struct flash_bank *bank)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	/* Use endian neutral call. */
-	target_buffer_set_u32_array(bank->target, etacorem3_bank->magic_address,
+	target_write_u32_array(bank->target, etacorem3_bank->magic_address,
 		(sizeof(magic_numbers)/sizeof(uint32_t)), magic_numbers);
 	return ERROR_OK;
 }
@@ -506,7 +514,6 @@ err_alloc_code:
 
 	return retval;
 }
-
 /**
  * Mass erase flash bank.
  * @param bank Pointer to the flash bank descriptor.
@@ -532,7 +539,7 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 		BREAKPOINT	/**< Return code from bootrom. */
 	};
 	/* endian neutral call. */
-	target_buffer_set_u32_array(target, (uint8_t *)SRAM_PARAM_START,
+	target_write_u32_array(target, (target_addr_t)SRAM_PARAM_START,
 		(sizeof(eta_erase_interface)/sizeof(uint32_t)), (uint32_t *)&sramargs);
 #if 0
 	if (retval != ERROR_OK) {
@@ -598,7 +605,7 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 		etacorem3_bank->bootrom_erase_entry,	/**< bootrom entry point. */
 		BREAKPOINT	/**< Return code from bootrom. */
 	};
-	target_buffer_set_u32_array(bank->target, (uint8_t *)SRAM_PARAM_START,
+	target_write_u32_array(bank->target, (target_addr_t)SRAM_PARAM_START,
 		(sizeof(eta_erase_interface)/sizeof(uint32_t)), (uint32_t *)&sramargs);
 #if 0
 	if (retval != ERROR_OK) {
@@ -709,7 +716,7 @@ static int etacorem3_write(struct flash_bank *bank,
 			0x00000001,	/**< Option 1, write flash in 512 byte blocks. */
 			BREAKPOINT	/**< Return code from bootrom. */
 		};
-		target_buffer_set_u32_array(bank->target, (uint8_t *)SRAM_PARAM_START,
+		target_write_u32_array(bank->target, (target_addr_t)SRAM_PARAM_START,
 			(sizeof(eta_write_interface)/sizeof(uint32_t)), (uint32_t *)&sramargs);
 #if 0
 		if (retval != ERROR_OK) {
