@@ -68,8 +68,8 @@
 #define ETA_COMMON_SRAM_SIZE_ECM3501 \
 	(ETA_COMMON_SRAM_MAX_ECM3501 - ETA_COMMON_SRAM_BASE_ECM3501)
 
-#define ETA_COMMON_FLASH_MAX_ECM3501  0x01080000
-#define ETA_COMMON_FLASH_BASE_ECM3501 0x01000000
+#define ETA_COMMON_FLASH_MAX_ECM3501  (0x01080000)
+#define ETA_COMMON_FLASH_BASE_ECM3501 (0x01000000)
 #define ETA_COMMON_FLASH_SIZE_ECM3501 \
 	(ETA_COMMON_FLASH_MAX_ECM3501 - ETA_COMMON_FLASH_BASE_ECM3501)
 
@@ -293,8 +293,8 @@ static int get_jedec_pid03(struct flash_bank *bank)
 #define CHECK_FPGA_M3ETA (0xb08cb580)
 #define CHECK_FLASH_ERASE_FPGA          (0x00b089b4)
 #define CHECK_FLASH_PROGRAM_FPGA        (0x00b089b4)
-#define CHECK_FLASH_ERASE_BOARD          (0x00b089b4)
-#define CHECK_FLASH_PROGRAM_BOARD        (0x00b089b4)
+#define CHECK_FLASH_ERASE_BOARD          (0x00b086b5)
+#define CHECK_FLASH_PROGRAM_BOARD        (0x00b086b5)
 
 /**
  * Get BootROM variant from BootRom address contents.
@@ -814,6 +814,8 @@ static int etacorem3_probe(struct flash_bank *bank)
 
 	/* Check bootrom version, get_variant sets default, no errors. */
 	etacorem3_bank->target_name = "ECM3501";
+	etacorem3_bank->pagesize = 4096;
+	
 	etacorem3_bank->fpga = get_variant(bank);
 	if (etacorem3_bank->fpga == 0) {
 		etacorem3_bank->bootrom_erase_entry = BOOTROM_FLASH_ERASE_BOARD;
@@ -837,6 +839,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 		etacorem3_bank->target_name = "M3ETA";
 		etacorem3_bank->bootrom_erase_entry = 0;
 		etacorem3_bank->bootrom_write_entry = 0;
+		etacorem3_bank->pagesize = 0;
 	/* Load for M3ETA. */
 	etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
 	etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_M3ETA;
@@ -853,6 +856,8 @@ static int etacorem3_probe(struct flash_bank *bank)
 			etacorem3_bank->flash_base,
 			etacorem3_bank->flash_max,
 			(32*1024));
+	if (etacorem3_bank->flash_size)
+		etacorem3_bank->num_pages = etacorem3_bank->flash_size / etacorem3_bank->pagesize;
 	/* provide this for the benefit of the NOR flash framework */
 	bank->base = (bank->bank_number * etacorem3_bank->flash_size) + \
 		etacorem3_bank->flash_base;
