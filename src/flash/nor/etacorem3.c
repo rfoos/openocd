@@ -647,7 +647,7 @@ static int etacorem3_write(struct flash_bank *bank,
 	struct working_area *workarea = NULL;
 	int retval = ERROR_OK;
 
-	/* Bootrom uses 64 bit count. */
+	/* Bootrom uses 32 bit boundaries, 64 bit count. */
 	if (((count%4) != 0) || ((offset%4) != 0)) {
 		LOG_ERROR("write block must be multiple of 4 bytes in offset & length");
 		return ERROR_FAIL;
@@ -822,6 +822,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 	/* Check bootrom version, get_variant sets default, no errors. */
 	etacorem3_bank->target_name = "ECM3501";
 	etacorem3_bank->pagesize = 4096;
+	etacorem3_bank->magic_address = MAGIC_ADDR_ECM3501;
 	
 	etacorem3_bank->fpga = get_variant(bank);
 	if (etacorem3_bank->fpga == 0) {
@@ -847,6 +848,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 		etacorem3_bank->bootrom_erase_entry = 0;
 		etacorem3_bank->bootrom_write_entry = 0;
 		etacorem3_bank->pagesize = 0;
+		etacorem3_bank->magic_address = MAGIC_ADDR_M3ETA;
 	/* Load for M3ETA. */
 	etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
 	etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_M3ETA;
