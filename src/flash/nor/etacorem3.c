@@ -146,6 +146,10 @@ struct etacorem3_flash_bank {
 	uint32_t flash_max;
 	uint32_t bootrom_erase_entry;
 	uint32_t bootrom_write_entry;	/**< bootrom_flash_program */
+	
+	/* Timeouts */
+	uint32_t timeout_erase;
+	uint32_t timeout_program;
 #if 0
 	uint32_t jedec;	/**< chip info from rom PID. */
 #endif
@@ -284,15 +288,26 @@ static int get_jedec_pid03(struct flash_bank *bank)
 	return pid03.jedec;
 }
 #endif
+
+/*
+ * Timeouts.
+ */
+#define TIMEOUT_ERASE_FPGA		(5000)
+#define TIMEOUT_PROGRAM_FPGA    (4000)
+#define TIMEOUT_ERASE_BOARD		(50000)
+#define TIMEOUT_PROGRAM_BOARD   (40000)
+
 /*
  * Jump table for ecm35xx bootroms.
  */
-#define BOOTROM_LOADER_FLASH_M3ETA	(0x000004F8)
-#define BOOTROM_LOADER_FPGA_M3ETA	(0x00000564)
+#define BOOTROM_LOADER_FLASH_M3ETA	    (0x000004F8)
+#define BOOTROM_LOADER_FPGA_M3ETA	    (0x00000564)
 #define BOOTROM_FLASH_ERASE_BOARD       (0x00000385)
 #define BOOTROM_FLASH_PROGRAM_BOARD     (0x000004C9)
 #define BOOTROM_FLASH_ERASE_FPGA        (0x00000249)
 #define BOOTROM_FLASH_PROGRAM_FPGA      (0x000002CD)
+
+
 
 /*
  * Check for BootROM version with values at jump table locations.
@@ -445,6 +460,7 @@ typedef struct {
 
 static int common_erase_run(struct flash_bank *bank)
 {
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	int retval;
 	struct working_area *workarea = NULL;
 
@@ -488,7 +504,7 @@ static int common_erase_run(struct flash_bank *bank)
 			0, NULL,
 			ARRAY_SIZE(reg_params), reg_params,
 			workarea->address, 0,
-			5000, &armv7m_algo);
+			etacorem3_bank->timeout_erase, &armv7m_algo);
 	uint32_t retvalT;
 	int retval1 = target_read_u32(bank->target,
 			(target_addr_t)(SRAM_PARAM_START + 0x10),
@@ -738,7 +754,7 @@ static int etacorem3_write(struct flash_bank *bank,
 				0, NULL,
 				ARRAY_SIZE(reg_params), reg_params,
 				workarea->address, 0,
-				4000, &armv7m_algo);
+				etacorem3_bank->timeout_program, &armv7m_algo);
 		uint32_t retvalT;
 		int retval1 = target_read_u32(bank->target,
 				SRAM_PARAM_START + 0x14,/* byte offset to error code. */
@@ -828,6 +844,8 @@ static int etacorem3_probe(struct flash_bank *bank)
 	if (etacorem3_bank->fpga == 0) {
 		etacorem3_bank->bootrom_erase_entry = BOOTROM_FLASH_ERASE_BOARD;
 		etacorem3_bank->bootrom_write_entry = BOOTROM_FLASH_PROGRAM_BOARD;
+		etacorem3_bank->timeout_erase = TIMEOUT_ERASE_BOARD;
+		etacorem3_bank->timeout_program = TIMEOUT_PROGRAM_BOARD;
 	/* Load for ECM3501. */
 	etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_ECM3501;
 	etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_ECM3501;
@@ -837,6 +855,8 @@ static int etacorem3_probe(struct flash_bank *bank)
 	} else if (etacorem3_bank->fpga == 1) {
 		etacorem3_bank->bootrom_erase_entry = BOOTROM_FLASH_ERASE_FPGA;
 		etacorem3_bank->bootrom_write_entry = BOOTROM_FLASH_PROGRAM_FPGA;
+		etacorem3_bank->timeout_erase = TIMEOUT_ERASE_FPGA;
+		etacorem3_bank->timeout_program = TIMEOUT_PROGRAM_FPGA;
 	/* Load for ECM3501. */
 	etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_ECM3501;
 	etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_ECM3501;
