@@ -325,7 +325,7 @@ static int mem_ap_write(struct adiv5_ap *ap, const uint8_t *buffer, uint32_t siz
 	const uint32_t csw_addrincr = addrinc ? CSW_ADDRINC_SINGLE : CSW_ADDRINC_OFF;
 	uint32_t csw_size;
 	uint32_t addr_xor;
-	int retval;
+	int retval = ERROR_OK;
 
 	/* TI BE-32 Quirks mode:
 	 * Writes on big-endian TMS570 behave very strangely. Observed behavior:
@@ -455,7 +455,7 @@ static int mem_ap_read(struct adiv5_ap *ap, uint8_t *buffer, uint32_t size, uint
 	const uint32_t csw_addrincr = addrinc ? CSW_ADDRINC_SINGLE : CSW_ADDRINC_OFF;
 	uint32_t csw_size;
 	uint32_t address = adr;
-	int retval;
+	int retval = ERROR_OK;
 
 	/* TI BE-32 Quirks mode:
 	 * Reads on big-endian TMS570 behave strangely differently than writes.
@@ -479,7 +479,8 @@ static int mem_ap_read(struct adiv5_ap *ap, uint8_t *buffer, uint32_t size, uint
 	/* Allocate buffer to hold the sequence of DRW reads that will be made. This is a significant
 	 * over-allocation if packed transfers are going to be used, but determining the real need at
 	 * this point would be messy. */
-	uint32_t *read_buf = malloc(count * sizeof(uint32_t));
+	uint32_t *read_buf = calloc(count, sizeof(uint32_t));
+	/* Multiplication count * sizeof(uint32_t) may overflow, calloc() is safe */
 	uint32_t *read_ptr = read_buf;
 	if (read_buf == NULL) {
 		LOG_ERROR("Failed to allocate read buffer");
