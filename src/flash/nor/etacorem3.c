@@ -101,10 +101,10 @@ struct etacorem3_flash_bank {
 	uint32_t flash_max;
 	uint32_t bootrom_erase_entry;	/**< BootROM_erase_program */
 	uint32_t bootrom_write_entry;	/**< BootROM_flash_program */
-	int32_t  bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
+	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
 
 	/* Timeouts */
-	double   time_per_page_erase;
+	double time_per_page_erase;
 	uint32_t timeout_erase;
 	uint32_t timeout_program;
 	bool probed;	/**< Flash bank has been probed. */
@@ -247,6 +247,7 @@ static int32_t get_variant(struct flash_bank *bank)
 	if (retval == ERROR_OK)
 		retval = target_read_u32(bank->target, BOOTROM_FLASH_ERASE_FPGA, &check_erase_fpga);
 
+
 	/* ECM3501 CHIP */
 	if (retval == ERROR_OK)
 		retval = target_read_u32(bank->target,
@@ -265,6 +266,7 @@ static int32_t get_variant(struct flash_bank *bank)
 	if (retval == ERROR_OK)
 		retval =
 			target_read_u32(bank->target, BOOTROM_LOADER_FPGA_M3ETA, &check_fpga_m3eta);
+
 
 	if (retval == ERROR_OK) {
 		if ((check_program_fpga == CHECK_FLASH_PROGRAM_FPGA) && \
@@ -362,7 +364,7 @@ typedef struct {
 	uint32_t flash_length;
 	uint32_t options;
 	uint32_t bootrom_entry_point;
-	int32_t  bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
+	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
 	uint32_t retval;
 } eta_erase_interface;
 
@@ -378,7 +380,7 @@ typedef struct {
 	uint32_t sram_buffer;
 	uint32_t options;	/**< 1 - Write 512 bytes at a time. */
 	uint32_t bootrom_entry_point;
-	int32_t  bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
+	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
 	uint32_t retval;
 } eta_write_interface;
 
@@ -431,7 +433,8 @@ static int common_erase_run(struct flash_bank *bank)
 			etacorem3_bank->timeout_erase, &armv7m_algo);
 	uint32_t retvalT;
 	int retval1 = target_read_u32(bank->target,
-			(target_addr_t)(SRAM_PARAM_START + 0x14),  /* byte offset to error code. */
+			(target_addr_t)(SRAM_PARAM_START + 0x14),	/* byte offset to error
+									 * code. */
 			&retvalT);
 	if ((retval != ERROR_OK) || (retval1 != ERROR_OK) || (retvalT != 0)) {
 		LOG_ERROR(
@@ -476,7 +479,7 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 		0x00000000,	/**< Length 0 for all. */
 		0x00000001,	/**< Option 1, mass erase. */
 		etacorem3_bank->bootrom_erase_entry,	/**< bootrom entry point. */
-        etacorem3_bank->bootrom_version, /**< chip, fpga, m3eta */
+		etacorem3_bank->bootrom_version,/**< chip, fpga, m3eta */
 		BREAKPOINT	/**< Return code from bootrom. */
 	};
 	/* endian neutral call. */
@@ -538,21 +541,21 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 		(last - first + 1) * etacorem3_bank->pagesize,	/**< Length in bytes. */
 		0x00000000,	/**< Request page erase. */
 		etacorem3_bank->bootrom_erase_entry,	/**< bootrom entry point. */
-        etacorem3_bank->bootrom_version, /**< chip or fpga */
+		etacorem3_bank->bootrom_version,/**< chip or fpga */
 		BREAKPOINT	/**< Return code from bootrom. */
 	};
 	target_write_u32_array(bank->target, (target_addr_t)SRAM_PARAM_START,
 		(sizeof(eta_erase_interface)/sizeof(uint32_t)), (uint32_t *)&sramargs);
 
-    /* ECM3501 chip needs longer sector erase timeout, and user warning. */
+	/* ECM3501 chip needs longer sector erase timeout, and user warning. */
 	if (etacorem3_bank->time_per_page_erase != 0.0) {
 		double erasetime = \
-            (last - first + 1) * etacorem3_bank->time_per_page_erase * 1000;
-        uint32_t itime = (uint32_t) erasetime;
-        LOG_DEBUG("erasetime: %f, %u", erasetime, itime);
+			(last - first + 1) * etacorem3_bank->time_per_page_erase * 1000;
+		uint32_t itime = (uint32_t) erasetime;
+		LOG_DEBUG("erasetime: %f, %u", erasetime, itime);
 		if (erasetime > 20.0)
 			LOG_INFO("Estimated erase time %u seconds.", itime/1000);
-        etacorem3_bank->timeout_erase = itime;
+		etacorem3_bank->timeout_erase = itime;
 	}
 
 	/* Common erase execution code. */
@@ -652,7 +655,7 @@ static int etacorem3_write(struct flash_bank *bank,
 			sram_buffer,
 			0x00000001,	/**< Option 1, write flash in 512 byte blocks. */
 			etacorem3_bank->bootrom_write_entry,	/**< bootrom entry point. */
-            etacorem3_bank->bootrom_version, /**< chip or fpga */
+			etacorem3_bank->bootrom_version,/**< chip or fpga */
 			BREAKPOINT	/**< Return code from bootrom. */
 		};
 		target_write_u32_array(bank->target, (target_addr_t)SRAM_PARAM_START,
@@ -675,7 +678,8 @@ static int etacorem3_write(struct flash_bank *bank,
 				etacorem3_bank->timeout_program, &armv7m_algo);
 		uint32_t retvalT;
 		int retval1 = target_read_u32(bank->target,
-				(target_addr_t)(SRAM_PARAM_START + 0x18), /* byte offset to error code. */
+				(target_addr_t)(SRAM_PARAM_START + 0x18),	/* byte offset to
+										 * error code. */
 				&retvalT);
 		if ((retval != ERROR_OK) || (retval1 != ERROR_OK) || (retvalT != 0)) {
 			LOG_ERROR(

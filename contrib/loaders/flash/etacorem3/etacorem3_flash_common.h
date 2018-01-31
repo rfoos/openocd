@@ -26,12 +26,12 @@
 
 #ifndef IOREG
 #define IOREG(x)                                                              \
-        (*((volatile uint32_t*)(x)))
+	(*((volatile uint32_t *)(x)))
 #endif
 
 
 #ifdef SIMULATION
-// use these constants for testing in chip simulation.
+/* use these constants for testing in chip simulation. */
 #define BOOTROM_FLASH_TNVS_COUNT   (0x10)
 #define BOOTROM_FLASH_TRE_COUNT    (0x28)
 #define BOOTROM_FLASH_TNVH_COUNT   (0x300)
@@ -102,8 +102,8 @@
 /*
  * Jump table for ecm35xx BootROM's.
  */
-#define BOOTROM_LOADER_FLASH_M3ETA	(0x000004F8)
-#define BOOTROM_LOADER_FPGA_M3ETA	(0x00000564)
+#define BOOTROM_LOADER_FLASH_M3ETA      (0x000004F8)
+#define BOOTROM_LOADER_FPGA_M3ETA       (0x00000564)
 #define BOOTROM_FLASH_ERASE_ECM3501     (0x00000385)
 #define BOOTROM_FLASH_PROGRAM_ECM3501   (0x000004C9)
 #define BOOTROM_FLASH_ERASE_FPGA        (0x00000249)
@@ -119,14 +119,15 @@
 #define CHECK_FLASH_ERASE_ECM3501       (0x00b086b5)
 #define CHECK_FLASH_PROGRAM_ECM3501     (0x00b086b5)
 
-typedef void     (* BootROM_FlashWSHelper_T)(uint32_t);
-typedef uint32_t (* BootROM_ui32LoadHelper_T)(uint32_t);
-typedef void     (* BootROM_ui32StoreHelper_T)(uint32_t,
-                                               uint32_t);
-typedef void     (*BootROM_flash_ref_cell_erase_T)(uint32_t, uint32_t, uint32_t,
-                                                   uint32_t);
+typedef void (*BootROM_FlashWSHelper_T)(uint32_t);
+typedef uint32_t (*BootROM_ui32LoadHelper_T)(uint32_t);
+typedef void (*BootROM_ui32StoreHelper_T)(uint32_t,
+	uint32_t);
+typedef void (*BootROM_flash_ref_cell_erase_T)(uint32_t, uint32_t, uint32_t,
+	uint32_t);
 
-typedef void     (* BootROM_flash_erase_T)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) ;
-typedef void     (* BootROM_flash_program_T)(uint32_t, uint32_t *, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+typedef void (*BootROM_flash_erase_T)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+typedef void (*BootROM_flash_program_T)(uint32_t, uint32_t *, uint32_t, uint32_t, uint32_t,
+	uint32_t, uint32_t, uint32_t);
 
 #endif

@@ -56,7 +56,7 @@ typedef struct {
 	uint32_t sram_buffer;
 	uint32_t options;	/**< 1 - Write 512 bytes at a time. */
 	uint32_t bootrom_entry_point;
-	int32_t  bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
+	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
 	uint32_t retval;
 } eta_write_interface;
 
@@ -126,7 +126,7 @@ int main()
 		 */
 		uint32_t num_extra = count%block_size;
 		uint32_t num_block = count/block_size + (num_extra ? 1 : 0);
-        
+
 
 		uint32_t tmp_adr = flash_address;
 		uint32_t *tmp_src = sram_buffer;
@@ -136,10 +136,10 @@ int main()
 			if ((num_extra != 0) && \
 				(I == (num_block - 1))) {
 				ETA_CSP_FLASH_PROGRAM(tmp_adr, tmp_src,
-                    ((bootrom_version == 0) ? num_extra * 2 : num_extra));
+					((bootrom_version == 0) ? num_extra * 2 : num_extra));
 			} else
 				ETA_CSP_FLASH_PROGRAM(tmp_adr, tmp_src,
-                    ((bootrom_version == 0) ? block_size * 2 : block_size));
+					((bootrom_version == 0) ? block_size * 2 : block_size));
 
 			tmp_adr += increment_size;	/* Always bytes. */
 			tmp_src += 128;	/* Address Increment. */

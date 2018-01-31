@@ -55,7 +55,7 @@ typedef struct {
 	uint32_t flash_length;
 	uint32_t options;	/**< 1 - mass erase. */
 	uint32_t bootrom_entry_point;
-	int32_t  bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
+	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
 	uint32_t retval;
 } eta_erase_interface;
 
