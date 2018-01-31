@@ -55,13 +55,13 @@ typedef struct {
 	uint32_t flash_length;
 	uint32_t options;	/**< 1 - mass erase. */
 	uint32_t bootrom_entry_point;
+	int32_t  bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
 	uint32_t retval;
 } eta_erase_interface;
 
-#if OCD
 /** Flash helper function for erase. */
-bootrom_flash_erase_T bootrom_flash_erase;
-#else
+BootROM_flash_erase_T BootROM_flash_erase;
+#ifndef OCD
 SET_MAGIC_NUMBERS;
 #endif
 
@@ -71,6 +71,7 @@ int main()
 	uint32_t flash_address = flash_interface->flash_address;
 	uint32_t flash_length = flash_interface->flash_length;
 	uint32_t flash_address_max = flash_address + flash_length;
+	uint32_t bootrom_version = flash_interface->bootrom_version;
 
 	if (flash_address <  ETA_COMMON_FLASH_BASE) {
 		flash_interface->retval = 1;
@@ -86,25 +87,25 @@ int main()
 		goto parameter_error;
 	}
 
-#if OCD
 	/* Set our Helper function entry point from interface. */
 	if (flash_interface->bootrom_entry_point) {
-		bootrom_flash_erase = \
-			(bootrom_flash_erase_T) flash_interface->bootrom_entry_point;
+		BootROM_flash_erase = \
+			(BootROM_flash_erase_T) flash_interface->bootrom_entry_point;
 	} else {
 		flash_interface->retval = 4;
 		goto parameter_error;
 	}
-#endif
 
 	/* erase all the pages we will work with. */
 	if (flash_interface->options == 1) {
+		flash_interface->retval = 5;
 		ETA_CSP_FLASH_MASS_ERASE();
 	} else {
+		flash_interface->retval = 6;
 		while (flash_address < flash_address_max) {
-			uint32_t eraseAddress;
-			eraseAddress = (flash_address & ETA_COMMON_FLASH_PAGE_ADDR_MASK);
-			ETA_CSP_FLASH_PAGE_ERASE(eraseAddress);
+			uint32_t erase_address;
+			erase_address = (flash_address & ETA_COMMON_FLASH_PAGE_ADDR_MASK);
+			ETA_CSP_FLASH_PAGE_ERASE(erase_address);
 			flash_address += ETA_COMMON_FLASH_PAGE_SIZE;
 		}
 	}

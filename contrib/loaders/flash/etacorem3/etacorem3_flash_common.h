@@ -24,6 +24,12 @@
 #ifndef _ETA_FLASH_COMMON_H
 #define _ETA_FLASH_COMMON_H
 
+#ifndef IOREG
+#define IOREG(x)                                                              \
+        (*((volatile uint32_t*)(x)))
+#endif
+
+
 #ifdef SIMULATION
 // use these constants for testing in chip simulation.
 #define BOOTROM_FLASH_TNVS_COUNT   (0x10)
@@ -43,18 +49,18 @@
 #define BOOTROM_FLASH_TPROG_COUNT  (0x78)
 #endif
 
-#define ETA_CSP_FLASH_MASS_ERASE()      bootrom_flash_erase(0x01000000, 1, BOOTROM_FLASH_TNVS_COUNT, \
+#define ETA_CSP_FLASH_MASS_ERASE()      BootROM_flash_erase(0x01000000, 1, BOOTROM_FLASH_TNVS_COUNT, \
 		BOOTROM_FLASH_TERASE_COUNT,                  \
 		BOOTROM_FLASH_TNVH_COUNT,                    \
 		BOOTROM_FLASH_TRCV_COUNT);
 
-#define ETA_CSP_FLASH_PAGE_ERASE(ADDR)  bootrom_flash_erase(ADDR, 0, BOOTROM_FLASH_TNVS_COUNT,      \
+#define ETA_CSP_FLASH_PAGE_ERASE(ADDR)  BootROM_flash_erase(ADDR, 0, BOOTROM_FLASH_TNVS_COUNT,      \
 		BOOTROM_FLASH_TERASE_COUNT,                  \
 		BOOTROM_FLASH_TNVH_COUNT,                    \
 		BOOTROM_FLASH_TRCV_COUNT);
 
 #define ETA_CSP_FLASH_PROGRAM(ADDR, SRCPTR, COUNT)          \
-	bootrom_flash_program(ADDR, SRCPTR, COUNT,  \
+	BootROM_flash_program(ADDR, SRCPTR, COUNT,  \
 		BOOTROM_FLASH_TNVS_COUNT,           \
 		BOOTROM_FLASH_TPGS_COUNT,           \
 		BOOTROM_FLASH_TPROG_COUNT,          \
@@ -96,8 +102,8 @@
 /*
  * Jump table for ecm35xx BootROM's.
  */
-#define BOOTROM_LOADER_FLASH_M3ETA	    (0x000004F8)
-#define BOOTROM_LOADER_FPGA_M3ETA	    (0x00000564)
+#define BOOTROM_LOADER_FLASH_M3ETA	(0x000004F8)
+#define BOOTROM_LOADER_FPGA_M3ETA	(0x00000564)
 #define BOOTROM_FLASH_ERASE_ECM3501     (0x00000385)
 #define BOOTROM_FLASH_PROGRAM_ECM3501   (0x000004C9)
 #define BOOTROM_FLASH_ERASE_FPGA        (0x00000249)
@@ -120,7 +126,7 @@ typedef void     (* BootROM_ui32StoreHelper_T)(uint32_t,
 typedef void     (*BootROM_flash_ref_cell_erase_T)(uint32_t, uint32_t, uint32_t,
                                                    uint32_t);
 
-typedef void     (* bootrom_flash_erase_T)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) ;
-typedef void     (* bootrom_flash_program_T)(uint32_t, uint32_t *, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+typedef void     (* BootROM_flash_erase_T)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) ;
+typedef void     (* BootROM_flash_program_T)(uint32_t, uint32_t *, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 
 #endif
