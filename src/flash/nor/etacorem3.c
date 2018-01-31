@@ -130,38 +130,9 @@ struct etacorem3_flash_bank {
 /** Last element of one dimensional array */
 #define ARRAY_LAST(x) x[ARRAY_SIZE(x)-1]
 
-#define TARGET_HALTED(target) { \
-		if (target->state != TARGET_HALTED) { \
-			LOG_ERROR("Target not halted"); \
-			return ERROR_TARGET_NOT_HALTED; } }
-
-#define TARGET_PROBED(info) { \
-		if (!info->probed) { \
-			LOG_ERROR("Target not probed"); \
-			return ERROR_FLASH_BANK_NOT_PROBED; } }
-
-#define TARGET_HALTED_AND_PROBED(target, info) { \
-		if (target->state != TARGET_HALTED) { \
-			LOG_ERROR("Target not halted"); \
-			return ERROR_TARGET_NOT_HALTED; \
-		} \
-		if (!info->probed) { \
-			LOG_ERROR("Target not probed"); \
-			return ERROR_FLASH_BANK_NOT_PROBED; } }
-
 #define CHECK_STATUS(rc, msg) { \
 		if (rc != ERROR_OK) \
 			LOG_ERROR("status(%d):%s\n", rc, msg); }
-
-#define CHECK_STATUS_RETURN(rc, msg) { \
-		if (rc != ERROR_OK) { \
-			LOG_ERROR("status(%d):%s\n", rc, msg); \
-			return rc; } }
-
-#define CHECK_STATUS_BREAK(rc, msg) { \
-		if (rc != ERROR_OK) { \
-			LOG_ERROR("status(%d):%s\n", rc, msg); \
-			break; } }
 
 /*
  * Global storage for driver.
@@ -251,6 +222,7 @@ static int32_t get_variant(struct flash_bank *bank)
 
 
 
+
 	/* ECM3501 CHIP */
 	if (retval == ERROR_OK)
 		retval = target_read_u32(bank->target,
@@ -269,6 +241,7 @@ static int32_t get_variant(struct flash_bank *bank)
 	if (retval == ERROR_OK)
 		retval =
 			target_read_u32(bank->target, BOOTROM_LOADER_FPGA_M3ETA, &check_fpga_m3eta);
+
 
 
 
@@ -472,7 +445,14 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	int retval = ERROR_OK;
 
-	TARGET_HALTED_AND_PROBED(target, etacorem3_bank);
+	if (target->state != TARGET_HALTED) {
+		LOG_ERROR("Target not halted");
+		return ERROR_TARGET_NOT_HALTED;
+	}
+	if (!etacorem3_bank->probed) {
+		LOG_ERROR("Target not probed");
+		return ERROR_FLASH_BANK_NOT_PROBED;
+	}
 
 	/*
 	 * Load SRAM Parameters.
@@ -520,9 +500,14 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 	struct target *target = bank->target;
 	int retval;
 
-	TARGET_HALTED_AND_PROBED(target, etacorem3_bank);
-
-	LOG_DEBUG("ETA ECM35xx erase sectors %d to %d.", first, last);
+	if (target->state != TARGET_HALTED) {
+		LOG_ERROR("Target not halted");
+		return ERROR_TARGET_NOT_HALTED;
+	}
+	if (!etacorem3_bank->probed) {
+		LOG_ERROR("Target not probed");
+		return ERROR_FLASH_BANK_NOT_PROBED;
+	}
 
 	/*
 	 * Check for valid page range.
@@ -645,7 +630,10 @@ static int etacorem3_write(struct flash_bank *bank,
 		 * Load target Write Buffer.
 		 */
 		retval = target_write_buffer(target, sram_buffer, thisrun_count, buffer);
-		CHECK_STATUS_BREAK(retval, "error writing buffer to target.");
+		if (retval != ERROR_OK) {
+			LOG_ERROR("status(%d):%s\n", retval, "error writing buffer to target.");
+			break;
+		}
 
 		LOG_DEBUG("address = 0x%08" PRIx32, address);
 
@@ -873,7 +861,10 @@ static int get_etacorem3_info(struct flash_bank *bank, char *buf, int buf_size)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 
-	TARGET_PROBED(etacorem3_bank);
+	if (!etacorem3_bank->probed) {
+		LOG_ERROR("Target not probed");
+		return ERROR_FLASH_BANK_NOT_PROBED;
+	}
 
 	int printed = snprintf(buf,
 			buf_size,
