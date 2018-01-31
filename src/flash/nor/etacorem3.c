@@ -40,20 +40,21 @@
  * Flash programming support for ETA ECM3xx devices.
  */
 
+/* Driver Debug. */
+#if 0
+#undef LOG_DEBUG
+#define LOG_DEBUG LOG_INFO
+#endif
+
 /* SRAM Address for magic numbers. */
 
 #define MAGIC_ADDR_M3ETA    (0x0001FFF0)
 #define MAGIC_ADDR_ECM3501  (0x1001FFF0)
 
-/* Max flash/sram common size all supported parts. */
-
-#define ETA_COMMON_SRAM_SIZE_MAX        (0x00020000)
-#define ETA_COMMON_FLASH_SIZE_MAX       (0x00080000)
-
 /* M3ETA */
 
 #define ETA_COMMON_SRAM_MAX_M3ETA  (0x00020000)
-#define ETA_COMMON_SRAM_BASE_M3ETA (0x00000000)
+#define ETA_COMMON_SRAM_BASE_M3ETA (0x00010000)
 #define ETA_COMMON_SRAM_SIZE_M3ETA \
 	(ETA_COMMON_SRAM_MAX_M3ETA  - ETA_COMMON_SRAM_BASE_M3ETA)
 
@@ -248,6 +249,7 @@ static int32_t get_variant(struct flash_bank *bank)
 		retval = target_read_u32(bank->target, BOOTROM_FLASH_ERASE_FPGA, &check_erase_fpga);
 
 
+
 	/* ECM3501 CHIP */
 	if (retval == ERROR_OK)
 		retval = target_read_u32(bank->target,
@@ -266,6 +268,7 @@ static int32_t get_variant(struct flash_bank *bank)
 	if (retval == ERROR_OK)
 		retval =
 			target_read_u32(bank->target, BOOTROM_LOADER_FPGA_M3ETA, &check_fpga_m3eta);
+
 
 
 	if (retval == ERROR_OK) {
@@ -323,15 +326,13 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 	uint32_t i, data;
 
 	/* Chip has no Memory. */
-	retval = target_read_u32(bank->target, startaddress, &data);
-	if (retval != ERROR_OK) {
-		LOG_ERROR("Memory not found at 0x%08X.", startaddress);
+	if (maxsize == 0)
 		return 0;
-	}
 
 	/* The memory scan causes a bus fault. Ignore expected error messages. */
 	int save_debug_level = debug_level;
 	debug_level = LOG_LVL_OUTPUT;
+
 	/* Read flash size we are testing. 0 - Max flash size, 16k increments. */
 	for (i = 0; i < maxsize; i += increment) {
 		retval = target_read_u32(bank->target, startaddress+i, &data);
@@ -752,9 +753,10 @@ static int etacorem3_probe(struct flash_bank *bank)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 
-	if (etacorem3_bank->probed)
+	if (etacorem3_bank->probed) {
+		LOG_DEBUG("Part already probed.");
 		return ERROR_OK;
-	else
+	} else
 		LOG_DEBUG("Probing part.");
 
 	/* Check bootrom version, get_variant sets default, no errors. */
