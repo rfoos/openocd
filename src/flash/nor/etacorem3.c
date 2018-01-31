@@ -250,6 +250,7 @@ static int32_t get_variant(struct flash_bank *bank)
 
 
 
+
 	/* ECM3501 CHIP */
 	if (retval == ERROR_OK)
 		retval = target_read_u32(bank->target,
@@ -268,6 +269,7 @@ static int32_t get_variant(struct flash_bank *bank)
 	if (retval == ERROR_OK)
 		retval =
 			target_read_u32(bank->target, BOOTROM_LOADER_FPGA_M3ETA, &check_fpga_m3eta);
+
 
 
 
@@ -322,8 +324,7 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 	uint32_t maxsize,
 	uint32_t increment)
 {
-	int retval;
-	uint32_t i, data;
+	uint32_t i;
 
 	/* Chip has no Memory. */
 	if (maxsize == 0)
@@ -335,7 +336,8 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 
 	/* Read flash size we are testing. 0 - Max flash size, 16k increments. */
 	for (i = 0; i < maxsize; i += increment) {
-		retval = target_read_u32(bank->target, startaddress+i, &data);
+		uint32_t data;
+		int retval = target_read_u32(bank->target, startaddress+i, &data);
 		if (retval != ERROR_OK)
 			break;
 	}
@@ -813,9 +815,10 @@ static int etacorem3_probe(struct flash_bank *bank)
 			etacorem3_bank->flash_base,
 			etacorem3_bank->flash_max,
 			(32*1024));
-	if (etacorem3_bank->flash_size)
-		etacorem3_bank->num_pages = etacorem3_bank->flash_size / etacorem3_bank->pagesize;
+
 	/* provide this for the benefit of the NOR flash framework */
+	if (etacorem3_bank->flash_size && etacorem3_bank->pagesize)
+		etacorem3_bank->num_pages = etacorem3_bank->flash_size / etacorem3_bank->pagesize;
 	bank->base = (bank->bank_number * etacorem3_bank->flash_size) + \
 		etacorem3_bank->flash_base;
 	bank->size = etacorem3_bank->pagesize * etacorem3_bank->num_pages;
