@@ -65,9 +65,15 @@ BootROM_flash_erase_T BootROM_flash_erase;
 SET_MAGIC_NUMBERS;
 #endif
 
-int main()
+/* R0 contains address of parameter block. */
+int main(uint32_t sram_param_start)
 {
-	eta_erase_interface *flash_interface = (eta_erase_interface *) SRAM_PARAM_START;
+	eta_erase_interface *flash_interface;
+	if (sram_param_start == 0)
+		flash_interface = (eta_erase_interface *) SRAM_PARAM_START;
+	else
+		flash_interface = (eta_erase_interface *) sram_param_start;
+
 	uint32_t flash_address = flash_interface->flash_address;
 	uint32_t flash_length = flash_interface->flash_length;
 	uint32_t flash_address_max = flash_address + flash_length;

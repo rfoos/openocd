@@ -60,16 +60,22 @@ typedef struct {
 	uint32_t retval;
 } eta_write_interface;
 
-/** Flash helper function for erase. */
+/** Flash helper function for write. */
 BootROM_flash_program_T BootROM_flash_program;
 #ifndef OCD
 SET_MAGIC_NUMBERS;
 #endif
 
-/** Write up to a sector to flash. */
-int main()
+/** Write up to a sector to flash.
+ * R0 contains address of parameter block. */
+int main(uint32_t sram_param_start)
 {
-	eta_write_interface *flash_interface = (eta_write_interface *) SRAM_PARAM_START;
+	eta_write_interface *flash_interface;
+	if (sram_param_start == 0)
+		flash_interface = (eta_write_interface *) SRAM_PARAM_START;
+	else
+		flash_interface = (eta_write_interface *) sram_param_start;
+
 	uint32_t flash_address = flash_interface->flash_address;
 	uint32_t flash_length = flash_interface->flash_length;
 	uint32_t flash_address_max = flash_address + flash_length;
@@ -100,16 +106,14 @@ int main()
 		goto parameter_error;
 	}
 
-#if 1
 	/* Set our Helper function entry point from interface. */
 	if (flash_interface->bootrom_entry_point) {
 		BootROM_flash_program = \
 			(BootROM_flash_program_T) flash_interface->bootrom_entry_point;
 	} else {
-		BootROM_flash_program = \
-			(BootROM_flash_program_T) BOOTROM_FLASH_PROGRAM_FPGA;
+		flash_interface->retval = 4;
+		goto parameter_error;
 	}
-#endif
 
 	/*
 	 * Board and FPGA BootrROMs use 64 bit counts for length.
@@ -135,11 +139,14 @@ int main()
 
 			if ((num_extra != 0) && \
 				(I == (num_block - 1))) {
+				flash_interface->retval = 5;
 				ETA_CSP_FLASH_PROGRAM(tmp_adr, tmp_src,
 					((bootrom_version == 0) ? num_extra * 2 : num_extra));
-			} else
+			} else {
+				flash_interface->retval = 6;
 				ETA_CSP_FLASH_PROGRAM(tmp_adr, tmp_src,
 					((bootrom_version == 0) ? block_size * 2 : block_size));
+			}
 
 			tmp_adr += increment_size;	/* Always bytes. */
 			tmp_src += 128;	/* Address Increment. */

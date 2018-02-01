@@ -223,6 +223,7 @@ static int32_t get_variant(struct flash_bank *bank)
 
 
 
+
 	/* ECM3501 CHIP */
 	if (retval == ERROR_OK)
 		retval = target_read_u32(bank->target,
@@ -241,6 +242,7 @@ static int32_t get_variant(struct flash_bank *bank)
 	if (retval == ERROR_OK)
 		retval =
 			target_read_u32(bank->target, BOOTROM_LOADER_FPGA_M3ETA, &check_fpga_m3eta);
+
 
 
 
@@ -375,7 +377,7 @@ static int common_erase_run(struct flash_bank *bank)
 		goto err_write_code;
 	}
 
-	struct reg_param reg_params[1];
+	struct reg_param reg_params[2];
 	struct armv7m_algorithm armv7m_algo;
 
 	/*
@@ -399,8 +401,12 @@ static int common_erase_run(struct flash_bank *bank)
 
 	/* wrapper function needs stack */
 	init_reg_param(&reg_params[0], "sp", 32, PARAM_OUT);
+	init_reg_param(&reg_params[1], "r0", 32, PARAM_OUT);
 	/* Set the sram stack. */
 	buf_set_u32(reg_params[0].value, 0, 32, SRAM_PARAM_START);
+	/* Set the sram parameter address */
+	buf_set_u32(reg_params[1].value, 0, 32, SRAM_PARAM_START);
+
 	/* Run the code. */
 	retval = target_run_algorithm(bank->target,
 			0, NULL,
@@ -593,12 +599,12 @@ static int etacorem3_write(struct flash_bank *bank,
 
 	/*
 	 * Max buffer size for this device...
-	 * Bootrom can only write 512 bytes at a time.
+	 * Chip Bootrom can only write 512 bytes at a time.
 	 * Target side code will block the write into 512 bytes.
 	 */
 	maxbuffer = SRAM_BUFFER_SIZE;
 
-	struct reg_param reg_params[1];
+	struct reg_param reg_params[2];
 
 	/*
 	 * Allocate space on target for write code.
@@ -659,8 +665,12 @@ static int etacorem3_write(struct flash_bank *bank,
 
 		/* wrapper function stack */
 		init_reg_param(&reg_params[0], "sp", 32, PARAM_OUT);
+		init_reg_param(&reg_params[1], "r0", 32, PARAM_OUT);
 		/* Set the sram stack. */
 		buf_set_u32(reg_params[0].value, 0, 32, SRAM_PARAM_START);
+		/* Set the sram parameter address */
+		buf_set_u32(reg_params[1].value, 0, 32, SRAM_PARAM_START);
+
 		/* Run the code. */
 		retval = target_run_algorithm(bank->target,
 				0, NULL,
