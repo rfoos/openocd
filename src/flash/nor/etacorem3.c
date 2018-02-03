@@ -105,7 +105,7 @@ struct etacorem3_flash_bank {
 	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
 
 	/* Timeouts */
-	double time_per_page_erase;
+	uint32_t time_per_page_erase;
 	uint32_t timeout_erase;
 	uint32_t timeout_program;
 	bool probed;	/**< Flash bank has been probed. */
@@ -176,7 +176,8 @@ static int set_magic_numbers(struct flash_bank *bank)
 /*
  * Timeouts.
  */
-#define TIME_PER_PAGE_ERASE_ECM3501 (1.13289410199725)
+/* 1.13289410199725 Seconds to 1133 Microseconds */
+#define TIME_PER_PAGE_ERASE_ECM3501 (1133)
 #define TIMEOUT_ERASE_ECM3501       (6000)
 #define TIMEOUT_PROGRAM_ECM3501     (2000)
 #define TIMEOUT_ERASE_FPGA          (4000)
@@ -542,14 +543,13 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 		(sizeof(eta_erase_interface)/sizeof(uint32_t)), (uint32_t *)&sramargs);
 
 	/* ECM3501 chip needs longer sector erase timeout, and user warning. */
-	if (etacorem3_bank->time_per_page_erase != 0.0) {
-		double erasetime = \
-			(last - first + 1) * etacorem3_bank->time_per_page_erase * 1000;
-		uint32_t itime = (uint32_t) erasetime;
-		LOG_DEBUG("erasetime: %f, %u", erasetime, itime);
-		if (erasetime > 20.0)
-			LOG_INFO("Estimated erase time %u seconds.", itime/1000);
-		etacorem3_bank->timeout_erase = itime;
+	if (etacorem3_bank->time_per_page_erase != 0) {
+		uint32_t erasetime = \
+			(last - first + 1) * etacorem3_bank->time_per_page_erase;
+		LOG_DEBUG("erasetime: %u.", erasetime);
+		if (erasetime > 20000)
+			LOG_INFO("Estimated erase time %u seconds.", erasetime/1000);
+		etacorem3_bank->timeout_erase = erasetime;
 	}
 
 	/* Common erase execution code. */
