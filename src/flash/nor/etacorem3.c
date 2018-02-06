@@ -531,7 +531,6 @@ static int common_erase_run(struct flash_bank *bank,
 		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
 		goto err_alloc_code;
 	}
-	LOG_DEBUG("erase size %lu", sizeof(erase_sector_code));
 	retval = target_write_buffer(bank->target, workarea->address,
 			sizeof(erase_sector_code), erase_sector_code);
 	if (retval != ERROR_OK)
