@@ -58,9 +58,9 @@
 #define ETA_COMMON_SRAM_SIZE_M3ETA \
 	(ETA_COMMON_SRAM_MAX_M3ETA  - ETA_COMMON_SRAM_BASE_M3ETA)
 
-#define ETA_COMMON_FLASH_MAX_M3ETA  0
-#define ETA_COMMON_FLASH_BASE_M3ETA 0
-#define ETA_COMMON_FLASH_SIZE_M3ETA 0
+#define ETA_COMMON_FLASH_MAX_M3ETA  (0)
+#define ETA_COMMON_FLASH_BASE_M3ETA (0)
+#define ETA_COMMON_FLASH_SIZE_M3ETA (0)
 
 /* ECM3501 */
 
@@ -79,6 +79,13 @@
 	(ETA_COMMON_FLASH_SIZE_ECM3501 / ETA_COMMON_FLASH_PAGE_SIZE_ECM3501)
 #define ETA_COMMON_FLASH_PAGE_ADDR_BITS (12)
 #define ETA_COMMON_FLASH_PAGE_ADDR_MASK (0xFFFFF000)
+
+/*
+ * Common, used for parameter checks prior to bootrom call.
+ */
+#define ETA_COMMON_FLASH_MAX  (0x01080000)
+#define ETA_COMMON_FLASH_BASE (0x01000000)
+#define ETA_COMMON_FLASH_SIZE (ETA_COMMON_FLASH_MAX  - ETA_COMMON_FLASH_BASE)
 
 /**
  * ETA flash bank info from probe.
@@ -112,27 +119,20 @@ struct etacorem3_flash_bank {
 };
 
 /**
- * Load and entry points of wrapper function.
- * @note Depends on -work-area-phys in target file.
+ * @note SRAM allocations depend on -work-area-phys in target file.
  */
-#define SRAM_ENTRY_POINT        (0x10000000)
-/** Location wrapper functions look for parameters, and top of stack. */
+
+/** Old Stack/Param location. */
 #define SRAM_PARAM_START        (0x10001000)
-/** Target buffer start address for write operations. */
-#define SRAM_BUFFER_START       (0x10002000)
 /** Target buffer size. */
-#define SRAM_BUFFER_SIZE        (0x00004000)
-/** Target algorithm start, Set in target -work-area-size. */
-#define SRAM_ALGO_START         (0x10006000)
-/** Target algo code max size. Set in target file -work-area-phys. */
-#define SRAM_ALGO_SIZE          (0x00004000)
+#define SRAM_BUFFER_SIZE        (0x00002000)
+/** Target algorithm stack size. */
+#define SRAM_STACK_SIZE         (0x00000100)
 
-/** Last element of one dimensional array */
-#define ARRAY_LAST(x) x[ARRAY_SIZE(x)-1]
-
+/** if return code not ok, print warning message. */
 #define CHECK_STATUS(rc, msg) { \
 		if (rc != ERROR_OK) \
-			LOG_ERROR("status(%d):%s\n", rc, msg); }
+			LOG_WARNING("status(%d):%s\n", rc, msg); }
 
 /*
  * Global storage for driver.
@@ -154,9 +154,13 @@ static const uint32_t magic_numbers[] = {
 static int target_write_u32_array(struct target *target, target_addr_t address,
 	uint32_t count, const uint32_t *srcbuf)
 {
-	for (uint32_t i = 0; i < count; i++)
-		target_write_u32(target, (target_addr_t)((uintptr_t)address + (i * 4)), srcbuf[i]);
-	return ERROR_OK;
+	int retval = ERROR_OK;
+	for (uint32_t i = 0; i < count; i++) {
+		retval = target_write_u32(target, address + (i * 4), srcbuf[i]);
+		if (retval != ERROR_OK)
+			break;
+	}
+	return retval;
 }
 
 /**
@@ -168,14 +172,15 @@ static int set_magic_numbers(struct flash_bank *bank)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	/* Use endian neutral call. */
-	target_write_u32_array(bank->target, etacorem3_bank->magic_address,
-		(sizeof(magic_numbers)/sizeof(uint32_t)), magic_numbers);
-	return ERROR_OK;
+	int retval = target_write_u32_array(bank->target, etacorem3_bank->magic_address,
+			(sizeof(magic_numbers)/sizeof(uint32_t)), magic_numbers);
+	return retval;
 }
 
 /*
  * Timeouts.
  */
+
 /* 1.13289410199725 Seconds to 1133 Microseconds */
 #define TIME_PER_PAGE_ERASE_ECM3501 (1133)
 #define TIMEOUT_ERASE_ECM3501       (6000)
@@ -225,6 +230,11 @@ static int32_t get_variant(struct flash_bank *bank)
 
 
 
+
+
+
+
+
 	/* ECM3501 CHIP */
 	if (retval == ERROR_OK)
 		retval = target_read_u32(bank->target,
@@ -243,6 +253,11 @@ static int32_t get_variant(struct flash_bank *bank)
 	if (retval == ERROR_OK)
 		retval =
 			target_read_u32(bank->target, BOOTROM_LOADER_FPGA_M3ETA, &check_fpga_m3eta);
+
+
+
+
+
 
 
 
@@ -317,7 +332,7 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 		if (retval != ERROR_OK)
 			break;
 	}
-	/* Restore output level. */
+	/* Restore debug output level. */
 	debug_level = save_debug_level;
 
 	LOG_DEBUG("Memory starting at 0x%08X size: %d KB.",
@@ -347,6 +362,64 @@ typedef struct {
 	uint32_t retval;
 } eta_erase_interface;
 
+/** range check of erase parameters. */
+static int check_erase_parameters(eta_erase_interface *sramargs)
+{
+	int retval = ERROR_OK;
+
+	/* Flash address min/max */
+	if (sramargs->flash_address <  ETA_COMMON_FLASH_BASE) {
+		retval = 1;
+		goto parameter_error;
+	}
+	if (sramargs->flash_address >= ETA_COMMON_FLASH_MAX) {
+		retval = 2;
+		goto parameter_error;
+	}
+
+	/* Flash length < max. */
+	if ((sramargs->flash_address + sramargs->flash_length) > ETA_COMMON_FLASH_MAX) {
+		retval = 3;
+		goto parameter_error;
+	}
+
+	/* Options 0 or 1 */
+	if ((sramargs->options != 0) && (sramargs->options != 1)) {
+		retval = 4;
+		goto parameter_error;
+	}
+
+	/* Match one possible entry point. */
+	retval = 5;
+	const uint32_t bootrom_addresses[] = {
+		BOOTROM_FLASH_ERASE_ECM3501,
+		BOOTROM_FLASH_PROGRAM_ECM3501,
+		BOOTROM_FLASH_ERASE_FPGA,
+		BOOTROM_FLASH_PROGRAM_FPGA
+	};
+	for (unsigned i = 0; i < ARRAY_SIZE(bootrom_addresses); i++) {
+		if (sramargs->bootrom_entry_point == bootrom_addresses[i]) {
+			retval = ERROR_OK;
+			break;
+		}
+	}
+	if (retval != ERROR_OK)
+		goto parameter_error;
+
+	/* Bootrom version 0-chip, 1-fpga, 2-m3eta. */
+	if ((sramargs->bootrom_version < 0) || (sramargs->bootrom_version > 2)) {
+		retval = 6;
+		goto parameter_error;
+	}
+
+parameter_error:
+	if (retval != ERROR_OK) {
+		LOG_ERROR("erase parameter error %d.", retval);
+		retval = ERROR_COMMAND_ARGUMENT_INVALID;
+	}
+	return retval;
+}
+
 /** Target sram wrapper code for write. */
 static const uint8_t write_sector_code[] = {
 #include "../../../contrib/loaders/flash/etacorem3/write.inc"
@@ -363,11 +436,77 @@ typedef struct {
 	uint32_t retval;
 } eta_write_interface;
 
-static int common_erase_run(struct flash_bank *bank)
+/** range check of write parameters. */
+static int check_write_parameters(eta_write_interface *sramargs)
+{
+	int retval = ERROR_OK;
+
+	/* Flash address min/max */
+	if (sramargs->flash_address <  ETA_COMMON_FLASH_BASE) {
+		retval = 1;
+		goto parameter_error;
+	}
+	if (sramargs->flash_address >= ETA_COMMON_FLASH_MAX) {
+		retval = 2;
+		goto parameter_error;
+	}
+
+	/* Flash length < max. */
+	if ((sramargs->flash_address + sramargs->flash_length) > ETA_COMMON_FLASH_MAX) {
+		retval = 3;
+		goto parameter_error;
+	}
+
+	/* Options 0 or 1 */
+	if ((sramargs->options != 0) && (sramargs->options != 1)) {
+		retval = 4;
+		goto parameter_error;
+	}
+
+	/* Match one possible entry point. */
+	retval = 5;
+	const uint32_t bootrom_addresses[] = {
+		BOOTROM_FLASH_ERASE_ECM3501,
+		BOOTROM_FLASH_PROGRAM_ECM3501,
+		BOOTROM_FLASH_ERASE_FPGA,
+		BOOTROM_FLASH_PROGRAM_FPGA
+	};
+	for (unsigned i = 0; i < ARRAY_SIZE(bootrom_addresses); i++) {
+		if (sramargs->bootrom_entry_point == bootrom_addresses[i]) {
+			retval = ERROR_OK;
+			break;
+		}
+	}
+	if (retval != ERROR_OK)
+		goto parameter_error;
+
+	/* Bootrom version 0-chip, 1-fpga, 2-m3eta. */
+	if ((sramargs->bootrom_version < 0) || (sramargs->bootrom_version > 2)) {
+		retval = 6;
+		goto parameter_error;
+	}
+
+parameter_error:
+	if (retval != ERROR_OK) {
+		LOG_ERROR("erase parameter error %d.", retval);
+		retval = ERROR_COMMAND_ARGUMENT_INVALID;
+	}
+	return retval;
+}
+
+/** Common code for erase commands. */
+static int common_erase_run(struct flash_bank *bank,
+	int param_size,
+	eta_erase_interface sramargs)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	int retval;
-	struct working_area *workarea = NULL;
+	struct working_area *workarea = NULL, *paramarea = NULL;
+	struct working_area *stackarea = NULL;
+
+	retval = check_erase_parameters(&sramargs);
+	if (retval != ERROR_OK)
+		return retval;
 
 	/*
 	 * Load Magic numbers required for bootrom help function execution.
@@ -392,21 +531,58 @@ static int common_erase_run(struct flash_bank *bank)
 		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
 		goto err_alloc_code;
 	}
+	LOG_DEBUG("erase size %lu", sizeof(erase_sector_code));
 	retval = target_write_buffer(bank->target, workarea->address,
 			sizeof(erase_sector_code), erase_sector_code);
 	if (retval != ERROR_OK)
 		goto err_write_code;
 
+	/*
+	 * Load SRAM parameters.
+	 */
+	retval = target_alloc_working_area(bank->target,
+			param_size, &paramarea);
+	LOG_DEBUG("parameter address: " TARGET_ADDR_FMT ".", paramarea->address);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No paramameter area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+	retval = target_write_u32_array(bank->target, paramarea->address,
+			(param_size/sizeof(uint32_t)), (uint32_t *)&sramargs);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("Failed to load sram parameters.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+
+	/*
+	 * Allocate stack area.
+	 */
+	retval = target_alloc_working_area(bank->target,
+			SRAM_STACK_SIZE, &stackarea);
+	LOG_DEBUG("stackarea address: " TARGET_ADDR_FMT ".", stackarea->address);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No stack area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+
 	armv7m_algo.common_magic = ARMV7M_COMMON_MAGIC;
 	armv7m_algo.core_mode = ARM_MODE_THREAD;
 
-	/* wrapper function needs stack */
+	/* allocate registers sp, and r0. */
 	init_reg_param(&reg_params[0], "sp", 32, PARAM_OUT);
 	init_reg_param(&reg_params[1], "r0", 32, PARAM_OUT);
-	/* Set the sram stack. */
-	buf_set_u32(reg_params[0].value, 0, 32, SRAM_PARAM_START);
-	/* Set the sram parameter address */
-	buf_set_u32(reg_params[1].value, 0, 32, SRAM_PARAM_START);
+
+	/* Set the sram stack in sp. */
+	buf_set_u32(reg_params[0].value, 0, 32, (stackarea->address + SRAM_STACK_SIZE));
+	/* Set the sram parameter address in r0. */
+	buf_set_u32(reg_params[1].value, 0, 32, paramarea->address);
+
+	/* Ignore expected error messages from breakpoint. */
+	int save_debug_level = debug_level;
+	debug_level = LOG_LVL_OUTPUT;
 
 	/* Run the code. */
 	retval = target_run_algorithm(bank->target,
@@ -414,10 +590,14 @@ static int common_erase_run(struct flash_bank *bank)
 			ARRAY_SIZE(reg_params), reg_params,
 			workarea->address, 0,
 			etacorem3_bank->timeout_erase, &armv7m_algo);
+
+	/* Restore debug output level. */
+	debug_level = save_debug_level;
+
+	/* Read return code from sram parameter area. */
 	uint32_t retvalT;
 	int retval1 = target_read_u32(bank->target,
-			(target_addr_t)(SRAM_PARAM_START + 0x14),	/* byte offset to error
-									 * code. */
+			(paramarea->address + offsetof(eta_erase_interface, retval)),
 			&retvalT);
 	if ((retval != ERROR_OK) || (retval1 != ERROR_OK) || (retvalT != 0)) {
 		LOG_ERROR(
@@ -434,7 +614,12 @@ err_run:
 		destroy_reg_param(&reg_params[i]);
 
 err_write_code:
-	target_free_working_area(bank->target, workarea);
+	if (workarea != NULL)
+		target_free_working_area(bank->target, workarea);
+	if (paramarea != NULL)
+		target_free_working_area(bank->target, paramarea);
+	if (stackarea != NULL)
+		target_free_working_area(bank->target, stackarea);
 
 err_alloc_code:
 
@@ -472,12 +657,10 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 		etacorem3_bank->bootrom_version,/**< chip, fpga, m3eta */
 		BREAKPOINT	/**< Return code from bootrom. */
 	};
-	/* endian neutral call. */
-	target_write_u32_array(target, (target_addr_t)SRAM_PARAM_START,
-		(sizeof(eta_erase_interface)/sizeof(uint32_t)), (uint32_t *)&sramargs);
 
 	/* Common erase execution code. */
-	retval = common_erase_run(bank);
+	retval = common_erase_run(bank,
+			sizeof(eta_erase_interface), sramargs);
 
 	/* if successful, mark sectors as erased */
 	if (retval == ERROR_OK)
@@ -539,8 +722,6 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 		etacorem3_bank->bootrom_version,/**< chip or fpga */
 		BREAKPOINT	/**< Return code from bootrom. */
 	};
-	target_write_u32_array(bank->target, (target_addr_t)SRAM_PARAM_START,
-		(sizeof(eta_erase_interface)/sizeof(uint32_t)), (uint32_t *)&sramargs);
 
 	/* ECM3501 chip needs longer sector erase timeout, and user warning. */
 	if (etacorem3_bank->time_per_page_erase != 0) {
@@ -553,7 +734,8 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 	}
 
 	/* Common erase execution code. */
-	retval = common_erase_run(bank);
+	retval = common_erase_run(bank,
+			sizeof(eta_erase_interface), sramargs);
 
 	/* if successful, mark sectors as erased */
 	if (retval == ERROR_OK)
@@ -576,10 +758,11 @@ static int etacorem3_write(struct flash_bank *bank,
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	struct target *target = bank->target;
 	uint32_t address = bank->base + offset;
-	uint32_t sram_buffer = SRAM_BUFFER_START;
+	uint32_t sram_buffer;
 	uint32_t maxbuffer;
 	uint32_t thisrun_count;
-	struct working_area *workarea = NULL;
+	struct working_area *workarea = NULL, *paramarea = NULL;
+	struct working_area *bufferarea = NULL, *stackarea = NULL;
 	int retval = ERROR_OK;
 
 	/* Bootrom uses 32 bit boundaries, 64 bit count. */
@@ -604,15 +787,29 @@ static int etacorem3_write(struct flash_bank *bank,
 	 */
 	maxbuffer = SRAM_BUFFER_SIZE;
 
+	/*
+	 * Allocate space on target for write buffer.
+	 */
+	retval = target_alloc_working_area(bank->target,
+			maxbuffer, &bufferarea);
+	LOG_DEBUG("bufferarea address: " TARGET_ADDR_FMT ", retval %d.", bufferarea->address,
+		retval);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No buffer area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+	sram_buffer = bufferarea->address;
+
+	/* R0 and SP for algorithm. */
 	struct reg_param reg_params[2];
 
 	/*
 	 * Allocate space on target for write code.
 	 */
 	retval = target_alloc_working_area(bank->target,
-			sizeof(write_sector_code),
-			&workarea);
-	LOG_DEBUG("workarea address: " TARGET_ADDR_FMT ".", workarea->address);
+			sizeof(write_sector_code), &workarea);
+	LOG_DEBUG("workarea address: " TARGET_ADDR_FMT ", retval %d.", workarea->address, retval);
 	if (retval != ERROR_OK) {
 		LOG_ERROR("No working area available.");
 		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
@@ -625,6 +822,30 @@ static int etacorem3_write(struct flash_bank *bank,
 			sizeof(write_sector_code), write_sector_code);
 	if (retval != ERROR_OK)
 		goto err_write_code;
+
+	/*
+	 * Allocate sram parameter area.
+	 */
+	retval = target_alloc_working_area(bank->target,
+			sizeof(eta_write_interface), &paramarea);
+	LOG_DEBUG("parameter address: " TARGET_ADDR_FMT ".", paramarea->address);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No param area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+
+	/*
+	 * Allocate stack area.
+	 */
+	retval = target_alloc_working_area(bank->target,
+			SRAM_STACK_SIZE, &stackarea);
+	LOG_DEBUG("stackarea address: " TARGET_ADDR_FMT ".", stackarea->address);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No stack area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
 
 	while (count > 0) {
 		if (count > maxbuffer)
@@ -641,8 +862,6 @@ static int etacorem3_write(struct flash_bank *bank,
 			break;
 		}
 
-		LOG_DEBUG("address = 0x%08" PRIx32, address);
-
 		/*
 		 * Load SRAM Parameters.
 		 */
@@ -655,21 +874,37 @@ static int etacorem3_write(struct flash_bank *bank,
 			etacorem3_bank->bootrom_version,/**< chip or fpga */
 			BREAKPOINT	/**< Return code from bootrom. */
 		};
-		target_write_u32_array(bank->target, (target_addr_t)SRAM_PARAM_START,
-			(sizeof(eta_write_interface)/sizeof(uint32_t)), (uint32_t *)&sramargs);
+		retval = check_write_parameters(&sramargs);
+		if (retval != ERROR_OK)
+			break;
+		retval = target_write_u32_array(bank->target,
+				paramarea->address,
+				(sizeof(eta_write_interface)/sizeof(uint32_t)),
+				(uint32_t *)&sramargs);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("Failed to load sram parameters.");
+			retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+			break;
+		}
 
 		struct armv7m_algorithm armv7m_algo;
 
 		armv7m_algo.common_magic = ARMV7M_COMMON_MAGIC;
 		armv7m_algo.core_mode = ARM_MODE_THREAD;
 
-		/* wrapper function stack */
+		/* allocate registers sp, and r0. */
 		init_reg_param(&reg_params[0], "sp", 32, PARAM_OUT);
 		init_reg_param(&reg_params[1], "r0", 32, PARAM_OUT);
-		/* Set the sram stack. */
-		buf_set_u32(reg_params[0].value, 0, 32, SRAM_PARAM_START);
-		/* Set the sram parameter address */
-		buf_set_u32(reg_params[1].value, 0, 32, SRAM_PARAM_START);
+
+		/* Set the sram stack in sp. */
+		buf_set_u32(reg_params[0].value, 0, 32,
+			(stackarea->address + SRAM_STACK_SIZE));
+		/* Set the sram parameter address in r0. */
+		buf_set_u32(reg_params[1].value, 0, 32, paramarea->address);
+
+		/* Ignore expected error messages from breakpoint. */
+		int save_debug_level = debug_level;
+		debug_level = LOG_LVL_OUTPUT;
 
 		/* Run the code. */
 		retval = target_run_algorithm(bank->target,
@@ -677,10 +912,14 @@ static int etacorem3_write(struct flash_bank *bank,
 				ARRAY_SIZE(reg_params), reg_params,
 				workarea->address, 0,
 				etacorem3_bank->timeout_program, &armv7m_algo);
+
+		/* Restore debug output level. */
+		debug_level = save_debug_level;
+
+		/* Read return code from sram parameter area. */
 		uint32_t retvalT;
 		int retval1 = target_read_u32(bank->target,
-				(target_addr_t)(SRAM_PARAM_START + 0x18),	/* byte offset to
-										 * error code. */
+				(paramarea->address + offsetof(eta_write_interface, retval)),
 				&retvalT);
 		if ((retval != ERROR_OK) || (retval1 != ERROR_OK) || (retvalT != 0)) {
 			LOG_ERROR(
@@ -703,7 +942,14 @@ err_run:
 		destroy_reg_param(&reg_params[i]);
 
 err_write_code:
-	target_free_working_area(bank->target, workarea);
+	if (workarea != NULL)
+		target_free_working_area(bank->target, workarea);
+	if (paramarea != NULL)
+		target_free_working_area(bank->target, paramarea);
+	if (stackarea != NULL)
+		target_free_working_area(bank->target, stackarea);
+	if (bufferarea != NULL)
+		target_free_working_area(bank->target, bufferarea);
 
 err_alloc_code:
 
@@ -822,8 +1068,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 	bank->size = etacorem3_bank->pagesize * etacorem3_bank->num_pages;
 	bank->num_sectors = etacorem3_bank->num_pages;
 
-	LOG_DEBUG("bank number: %d, base: 0x%08" PRIx32
-		", size: %d KB, num sectors: %d.",
+	LOG_DEBUG("bank number: %d, base: 0x%08X, size: %d KB, num sectors: %d.",
 		bank->bank_number,
 		bank->base,
 		bank->size/1024,
