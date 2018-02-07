@@ -9,7 +9,7 @@
 /******************************************************************************
  * Copyright (C) 2015, David Racine <dracine at ambiqmicro.com>
  *
- * Copyright (C) 2016, Rick Foos <rfoos at solengtech.com>
+ * Copyright (C) 2016-2018, Rick Foos <rfoos at solengtech.com>
  *
  * Copyright (C) 2015-2016, Ambiq Micro, Inc.
  *
@@ -95,7 +95,7 @@
 /** Part number(class), Flash/Sram size, Revision, Package. */
 #define REG_CONTROL_CHIPPN          (0x40020000)
 
-/** Ambiq debug register. */
+/** PID0 debug register. */
 #define REG_DEBUG_AMBIQ             (0xF0000FE0)
 /** Ambiq Chip ID Mask. */
 #define REG_DEBUG_AMBIQ_ID_MASK     (0x000000F0)
@@ -191,15 +191,12 @@
 /** Last element of one dimensional array */
 #define ARRAY_LAST(x) x[ARRAY_SIZE(x)-1]
 /** Bootloader SRAM parameter block start. */
-#define SRAM_PARAM_START    ((uint32_t *)0x10000000ul)
-/** Autoincrementing Sram pointer, increment determined by pSram type. */
-#define pSRAM               ((uintptr_t)pSram++)
+#define SRAM_PARAM_START    (0x10000000)
 /** Buffer for chipinfo/get_ambiqmicro_info. */
 #define INFO_BUFFERSIZE     (1024)
 
 /** Bootloader commands, sizes, and addresses for current processor. */
-typedef struct _bootldr bootldr;
-struct _bootldr {
+typedef struct {
 	uint32_t write_buffer_start;
 	uint32_t write_buffer_size;
 	uint32_t info_space_size;
@@ -215,7 +212,7 @@ struct _bootldr {
 	uint32_t flash_info_erase_from_sram;
 	uint32_t flash_info_plus_main_erase_from_sram;
 	uint32_t flash_recovery_from_sram;
-};
+} bootldr;
 
 /** Apollo2 bootloader commands, sizes, and addresses. */
 static const bootldr apollo2_bootldr = {
@@ -253,7 +250,7 @@ static const bootldr apollo_bootldr = {
 	0,	/* flash_recovery_from_sram */
 };
 
-/** Maximum Flash/Sram size for Apollo/Apollo2 defined in Part Number. */
+/** Maximum Flash/Sram size defined in Part Number. */
 #define APOLLOx_FLASHSRAM_MAX_SIZE   (0x200000)
 /** Minimum Flash/Sram size defined in Part Number. */
 #define APOLLOx_FLASHSRAM_MIN_SIZE   (0x004000)
@@ -295,6 +292,8 @@ struct ambiqmicro_flash_bank {
 	/* chip id register */
 
 	uint32_t probed;
+	uint32_t pid0;
+	uint32_t chippn;
 
 	const char *target_name;
 	uint8_t target_base_class;
@@ -303,8 +302,8 @@ struct ambiqmicro_flash_bank {
 	uint8_t target_package;
 	uint8_t target_qual;
 	uint8_t target_pins;
-	char **pins;
-	int pins_array_size;
+	const char **pins;
+	int32_t pins_array_size;
 	uint8_t target_temp;
 
 	uint32_t sramsize;
@@ -316,15 +315,15 @@ struct ambiqmicro_flash_bank {
 
 	uint32_t num_pages;
 	uint32_t pagesize;
-	int banksize;
+	int32_t banksize;
 
 	/* bootloader commands, addresses, and sizes. */
 
 	const bootldr *bootloader;
-	const uint32_t *flashsram_size;
-	int flashsram_array_size;
-	int flashsram_max_size;
-	int flashsram_min_size;
+	const uint32_t *flashsram_size;	/* used as array. */
+	int32_t flashsram_array_size;
+	int32_t flashsram_max_size;
+	int32_t flashsram_min_size;
 };
 
 /***************************************************************************
@@ -382,21 +381,19 @@ Device Class        Flash Size  Ram Size    Rev     Package Pins    Temp    Qual
 #define DEFAULT_PARTNUM_PACKAGE  2
 
 /** Class to Part Names. */
-static struct {
-	uint8_t class;
-	uint8_t partno;
-	const char *partname;
+static const struct {
+	const char *const partname;
 } ambiqmicroParts[] = {
-	{0x00, 0x00, "Unknown"},
-	{0x01, 0x00, "Apollo"},
-	{0x02, 0x00, "Reserved"},
-	{0x03, 0x00, "Apollo2"},
-	{0x04, 0x00, "Reserved"},
-	{0x05, 0x00, "ApolloBL"},
+	{"Unknown"},
+	{"Apollo"},
+	{"Reserved"},
+	{"Apollo2"},
+	{"Reserved"},
+	{"ApolloBL"},
 };
 
 /** Package names used by flash info command. */
-static char *ambiqmicroPackage[] = {
+static const char *const ambiqmicroPackage[] = {
 	"SIP",
 	"QFN",
 	"BGA",
@@ -404,16 +401,16 @@ static char *ambiqmicroPackage[] = {
 	"Unknown"
 };
 
-/** Number of Pins on Apollo packages. */
-static char *apollo_pins[] = {
+/** Number of Pins on Apollo packages. (ignore checkpatch const warning) */
+static const char *apollo_pins[] = {
 	"25",
 	"41",
 	"64",
 	"Unknown"
 };
 
-/** Number of Pins on Apollo2 packages. */
-static char *apollo2_pins[] = {
+/** Number of Pins on Apollo2 packages. (ignore checkpatch const warning) */
+static const char *apollo2_pins[] = {
 	"25",
 	"49",
 	"64",
@@ -421,7 +418,7 @@ static char *apollo2_pins[] = {
 };
 
 /** Temperature range of part. */
-static char *ambiqmicroTemp[] = {
+static const char *const ambiqmicroTemp[] = {
 	"Commercial",
 	"Military",
 	"Automotive",
@@ -431,11 +428,9 @@ static char *ambiqmicroTemp[] = {
 
 static int is_apollo(struct ambiqmicro_flash_bank *ambiqmicro_info)
 {
-	int retval;
-	if (ambiqmicro_info->target_base_class == APOLLO_BASE_CLASS)
+	int retval = 0;
+	if (ambiqmicro_info->pid0 == APOLLO_BASE_CLASS)
 		retval = 1;
-	else
-		retval = 0;
 	return retval;
 }
 
@@ -486,21 +481,6 @@ static int get_ambiqmicro_info(struct flash_bank *bank, char *buf, int buf_size)
 	return ERROR_OK;
 }
 
-/** Get closest valid Part Number size for flash. */
-static int get_flashsram_partnum_size(struct ambiqmicro_flash_bank *ambiqmicro_info,
-	int startaddress,
-	int size)
-{
-	int i = 0;
-	for (i = 0; i < ambiqmicro_info->flashsram_array_size; i++)
-		if (((uint32_t)size <= ambiqmicro_info->flashsram_size[i]) && \
-			((uint32_t)size > (ambiqmicro_info->flashsram_size[i] >> 1)))
-			break;
-	LOG_DEBUG("Hardware %s index: %d.",
-		((startaddress == FLASHSTART) ? "Flash" : "Sram"), i);
-	return i;
-}
-
 /** Get Flash/Sram size in bytes from hardware check.
  *  Flash can be sized smaller in 16k increments.
  *  SRAM can be sized smaller in 8k increments.
@@ -528,7 +508,7 @@ static int get_flashsram_size(struct flash_bank *bank, uint32_t startaddress)
 		if (retval != ERROR_OK)
 			break;
 	}
-	/* Restore output level. */
+	/* Restore debug output level. */
 	debug_level = save_debug_level;
 
 	if (i < ambiqmicro_info->flashsram_min_size)
@@ -541,259 +521,6 @@ static int get_flashsram_size(struct flash_bank *bank, uint32_t startaddress)
 		((startaddress == FLASHSTART) ? "Flash" : "Sram"),
 		i/1024);
 	return i;
-}
-
-/** Set apollo info unique to class. */
-static int set_class_info(struct ambiqmicro_flash_bank *ambiqmicro_info, uint32_t class)
-{
-	int retval = ERROR_OK;
-	switch (class) {
-		case APOLLO_BASE_CLASS:	/* 1 - Apollo */
-		case 5:					/* 5 - Apollo BootLoader */
-			ambiqmicro_info->target_base_class = APOLLO_BASE_CLASS;
-			ambiqmicro_info->target_class = class;
-			ambiqmicro_info->pagesize = APOLLO_PAGESIZE;
-			ambiqmicro_info->banksize = APOLLO_BANKSIZE;
-			ambiqmicro_info->bootloader = &apollo_bootldr;
-			ambiqmicro_info->flashsram_size = apollo_flashsram_size;
-			ambiqmicro_info->flashsram_array_size = ARRAY_SIZE(apollo_flashsram_size);
-			ambiqmicro_info->flashsram_max_size = APOLLOx_FLASHSRAM_MAX_SIZE;
-			ambiqmicro_info->flashsram_min_size = APOLLOx_FLASHSRAM_MIN_SIZE;
-			ambiqmicro_info->pins_array_size = ARRAY_SIZE(apollo_pins);
-			ambiqmicro_info->pins = apollo_pins;
-			break;
-
-		case APOLLO2_BASE_CLASS:	/* 3 - Apollo2 */
-			ambiqmicro_info->target_base_class = APOLLO2_BASE_CLASS;
-			ambiqmicro_info->target_class = class;
-			ambiqmicro_info->pagesize = APOLLO2_PAGESIZE;
-			ambiqmicro_info->banksize = APOLLO2_BANKSIZE;
-			ambiqmicro_info->bootloader = &apollo2_bootldr;
-			ambiqmicro_info->flashsram_size = apollo2_flashsram_size;
-			ambiqmicro_info->flashsram_array_size = ARRAY_SIZE(apollo2_flashsram_size);
-			ambiqmicro_info->flashsram_max_size = APOLLOx_FLASHSRAM_MAX_SIZE;
-			ambiqmicro_info->flashsram_min_size = APOLLOx_FLASHSRAM_MIN_SIZE;
-			ambiqmicro_info->pins_array_size = ARRAY_SIZE(apollo2_pins);
-			ambiqmicro_info->pins = apollo2_pins;
-			break;
-
-		default:
-			LOG_ERROR("Unknown Class %d.", class);
-			retval = ERROR_FAIL;
-			break;
-	}
-	/*
-	 * Target Name from target class.
-	 */
-	if ((ambiqmicro_info->target_class > 0) &&
-		(ambiqmicro_info->target_class < ARRAY_SIZE(ambiqmicroParts)))
-		ambiqmicro_info->target_name =
-			ambiqmicroParts[ambiqmicro_info->target_class].partname;
-	else
-		ambiqmicro_info->target_name =
-			ambiqmicroParts[0].partname;
-
-	return retval;
-}
-
-/** Determine base class from hardware check of Ambiq Debug Register. */
-static uint32_t get_base_class(struct flash_bank *bank)
-{
-	uint32_t class;
-	int retval = target_read_u32(bank->target, REG_DEBUG_AMBIQ, &class);
-	LOG_DEBUG("pReg[0x%08X] 0x%08X", REG_DEBUG_AMBIQ, class);
-	if (retval != ERROR_OK) {
-		class = APOLLO2_BASE_CLASS;
-		LOG_ERROR("Ambiq Debug Register not found.");
-	} else if ((class & REG_DEBUG_AMBIQ_ID_MASK) == REG_DEBUG_AMBIQ_ID_APOLLO)
-		class = APOLLO_BASE_CLASS;
-	else if ((class & REG_DEBUG_AMBIQ_ID_MASK) == REG_DEBUG_AMBIQ_ID_APOLLO2)
-		class = APOLLO2_BASE_CLASS;
-	else {
-		class = APOLLO2_BASE_CLASS;
-		LOG_ERROR("Ambiq Debug Register invalid.");
-	}
-	LOG_DEBUG("Ambiq Register ID: %s.", (class == APOLLO_BASE_CLASS) ? "Apollo" : "Apollo2");
-	return class;
-}
-
-/** Construct a valid Part Number from hardware tests. */
-static uint32_t default_partnum(struct flash_bank *bank, int pnum_flashsize, int pnum_sramsize)
-{
-	uint32_t class = get_base_class(bank);
-
-	uint32_t partnum = (
-		(class << P_CLASS_SHIFT) |	/* Base Class */ \
-		(pnum_flashsize << P_FLASH_SHIFT) |	/* Flash Size */ \
-		(pnum_sramsize << P_SRAM_SHIFT) |	/* SRAM Size */ \
-		(DEFAULT_PARTNUM_REVISION << P_REV_SHIFT)  |	/* Revision 0.1 */ \
-		(DEFAULT_PARTNUM_PACKAGE << P_PACK_SHIFT)	/* BGA Package */ \
-		);
-	return partnum;
-}
-
-/** Read Chip Part Number. */
-static uint32_t read_chippn(struct flash_bank *bank)
-{
-	uint32_t chippn = 0;
-	int retval = target_read_u32(bank->target, REG_CONTROL_CHIPPN, &chippn);
-	if (retval != ERROR_OK) {
-		LOG_ERROR("Could not read Part Number, status(0x%x).", retval);
-		chippn = 0;
-	}
-	return chippn;
-}
-
-/** Fill in driver info structure */
-static int ambiqmicro_read_part_info(struct flash_bank *bank)
-{
-	struct ambiqmicro_flash_bank *ambiqmicro_info = bank->driver_priv;
-	uint32_t partnum, chippn, class, pnum_class;
-	int retval, pnum_size;
-
-	/*
-	 * Read Part Number.
-	 * <class><flashsize><sramsize><revision><package>
-	 * save chip part number for later.
-	 */
-	chippn = read_chippn(bank);
-	partnum = chippn;
-	LOG_DEBUG("Part Number: 0x%08X", partnum);
-
-	/*
-	 * Get a base class from hardware and class from Part Number we read.
-	 */
-	class = get_base_class(bank);
-	pnum_class = (partnum & P_CLASS_MASK) >> P_CLASS_SHIFT;
-
-	/*
-	 * Make known good ambiqmicro_info for target memory sizing.
-	 */
-	retval = set_class_info(ambiqmicro_info, class);
-	if (retval != ERROR_OK)
-		LOG_ERROR("Flash info initialization failed. Cannot issue commands to target.");
-
-	/*
-	 * Get flash and sram hardware sizes.
-	 */
-	int flashsize = get_flashsram_size(bank, FLASHSTART);
-	if (flashsize == ERROR_FAIL)
-		flashsize = DEFAULT_FLASH_SIZE;
-	int pnum_flashsize = get_flashsram_partnum_size(ambiqmicro_info, FLASHSTART, flashsize);
-
-	int sramsize = get_flashsram_size(bank, SRAMSTART);
-	if (sramsize == ERROR_FAIL)
-		sramsize = DEFAULT_SRAM_SIZE;
-	int pnum_sramsize = get_flashsram_partnum_size(ambiqmicro_info, SRAMSTART, sramsize);
-
-	/*
-	 * Check if Part Number class matches hardware.
-	 * If not, construct a valid Part Number for this device.
-	 */
-	switch (pnum_class) {
-		case APOLLO_BASE_CLASS:		/* 1 - Apollo */
-		case 5:				/* 5 - Apollo Secure Bootloader */
-			if (class != APOLLO_BASE_CLASS) {
-				LOG_WARNING("Apollo Part class did not match hardware.");
-				partnum = default_partnum(bank, pnum_flashsize, pnum_sramsize);
-			}
-			break;
-
-		case APOLLO2_BASE_CLASS:	/* 3 - Apollo2 */
-			if (class != APOLLO2_BASE_CLASS) {
-				LOG_WARNING("Apollo2 Part class did not match hardware.");
-				partnum = default_partnum(bank, pnum_flashsize, pnum_sramsize);
-			}
-			break;
-
-		default:	/* Calculate default part. */
-			LOG_WARNING("Unknown Class %d. Determining default part number.",
-				pnum_class);
-			partnum = default_partnum(bank, pnum_flashsize, pnum_sramsize);
-			break;
-	}
-
-	/*
-	 * Compare hardware flash size to Part Number flash size.
-	 */
-	pnum_size = ((partnum & P_FLASH_MASK) >> P_FLASH_SHIFT);
-	LOG_DEBUG("Flash (Partnum %d != Hardware %d)", pnum_size, pnum_flashsize);
-	if (pnum_size != pnum_flashsize) {
-		LOG_WARNING("Invalid flash size in Part Number(%d KB), using hardware size(%d KB).",
-			ambiqmicro_info->flashsram_size[pnum_size]/1024,
-			ambiqmicro_info->flashsram_size[pnum_flashsize]/1024);
-		partnum &= ~P_FLASH_MASK;
-		partnum |= (pnum_flashsize << P_FLASH_SHIFT);
-	}
-
-	/*
-	 * Compare hardware sram size to Part Number sram size.
-	 */
-	pnum_size = ((partnum & P_SRAM_MASK) >> P_SRAM_SHIFT);
-	LOG_DEBUG("SRAM (Partnum %d != Hardware %d)", pnum_size, pnum_sramsize);
-	if (pnum_size != pnum_sramsize) {
-		LOG_WARNING("Invalid sram size in Part Number(%d KB), using hardware size(%d KB).",
-			ambiqmicro_info->flashsram_size[pnum_size]/1024,
-			ambiqmicro_info->flashsram_size[pnum_sramsize]/1024);
-		partnum &= ~(P_SRAM_MASK);
-		partnum |= (pnum_sramsize << P_SRAM_SHIFT);
-	}
-
-	/*
-	 * At this point, we're sure the corrected Part Number is good.
-	 * Displaying the value was confusing, so log a warning.
-	 */
-	if (partnum != chippn)
-		LOG_ERROR("Chip Part Number invalid for this device.");
-
-	/*
-	 * Set class name, pagesize, and bootloader commands.
-	 */
-	set_class_info(ambiqmicro_info, ((partnum & P_CLASS_MASK) >> P_CLASS_SHIFT));
-
-	/*
-	 * Set revision, package, and qualified.
-	 */
-	ambiqmicro_info->target_revision = (partnum & P_REV_MASK) >> P_REV_SHIFT;
-	ambiqmicro_info->target_package = (partnum & P_PACK_MASK) >> P_PACK_SHIFT;
-	ambiqmicro_info->target_qual = (partnum & P_QUAL_MASK);
-	ambiqmicro_info->target_pins = (partnum & P_PINS_MASK) >> P_PINS_SHIFT;
-	ambiqmicro_info->target_temp = (partnum & P_TEMP_MASK) >> P_TEMP_SHIFT;
-
-	/*
-	 * Apollo's have two flash banks/instances sequentially in memory.
-	 * In a small memory apollo, only one bank may be available.
-	 */
-	ambiqmicro_info->total_flashsize = flashsize;
-	if (flashsize <= ambiqmicro_info->banksize)
-		if (bank->bank_number == 0)
-			ambiqmicro_info->flashsize = flashsize;
-		else
-			ambiqmicro_info->flashsize = 0;
-	else
-		ambiqmicro_info->flashsize = flashsize >> 1;
-	ambiqmicro_info->num_pages = ambiqmicro_info->flashsize / ambiqmicro_info->pagesize;
-
-	LOG_DEBUG("Total flashsize: %dKb, flashsize: %dKb, banksize: %dKb, banknumber: %d",
-		ambiqmicro_info->total_flashsize/1024,
-		ambiqmicro_info->flashsize/1024,
-		ambiqmicro_info->banksize/1024,
-		bank->bank_number);
-
-	ambiqmicro_info->sramsize = sramsize;
-
-
-	LOG_INFO(
-		"\nTarget name: %s, bank: %d, pages: %d, pagesize: %d KB"
-		"\n\tflash: %d KB, sram: %d KB",
-		ambiqmicro_info->target_name,
-		bank->bank_number,
-		ambiqmicro_info->num_pages,
-		ambiqmicro_info->pagesize/1024,
-		ambiqmicro_info->flashsize/1024,
-		ambiqmicro_info->sramsize/1024);
-
-	return ERROR_OK;
 }
 
 /***************************************************************************
@@ -834,75 +561,69 @@ static int write_is_erased(struct flash_bank *bank, int first, int last, int fla
 
 /** Clear sram parameter space.
 Sram pointer is incremented+4 beyond the last write to sram.*/
-static int clear_sram_parameters(struct target *target, uint32_t *pSram, uint32_t *pStart)
+static int clear_sram_parameters(struct target *target, uint32_t pSram, uint32_t pStart)
 {
 	if (pSram < pStart) {
-		LOG_DEBUG("sram pointer %p less than start address %p",
+		LOG_DEBUG("sram pointer %u less than start address %u",
 			pSram, pStart);
 		return 1;
 	}
-	while (pSram > pStart)
-		target_write_u32(target, (uintptr_t)-- pSram, 0);
+	while (pSram > pStart) {
+		pSram -= sizeof(uint32_t);
+		int retval = target_write_u32(target, pSram, 0);
+		if (retval != ERROR_OK)
+			return 1;
+	}
 	return 0;
 }
 
 /** Load bootloader arguments into SRAM. */
-static uint32_t *setup_sram(struct target *target, int width, uint32_t arr[width])
+static uint32_t setup_sram(struct target *target, int width, uint32_t arr[width])
 {
-	uint32_t *pSramRetval = NULL, *pSram = SRAM_PARAM_START;
-	uint32_t SramVerify;
+	uint32_t pSramRetval = 0, pSram = SRAM_PARAM_START;
 	int retval;
 
 	for (int i = 0; i < width; i++) {
-		LOG_DEBUG("pSram[0x%08X] 0x%08X", (uint32_t)(uintptr_t)pSram, arr[i]);
+		LOG_DEBUG("pSram[0x%08X] 0x%08X", pSram, arr[i]);
 		if (arr[i] == BREAKPOINT)
 			pSramRetval = pSram;
-		retval = target_write_u32(target, (uintptr_t)pSram, arr[i]);
-		CHECK_STATUS(retval, "error writing bootloader SRAM parameters.");
-		if (retval != ERROR_OK)
-			break;
-		retval = target_read_u32(target, (uintptr_t)pSram, &SramVerify);
-		CHECK_STATUS(retval, "error verifying bootloader SRAM parameters.");
-		if (retval != ERROR_OK)
-			break;
-		if (SramVerify != arr[i]) {
-			LOG_ERROR("SRAM parameters could not be written.");
-			LOG_DEBUG("SramVerify 0x%08X != 0x%08X", SramVerify, arr[i]);
-			retval = ERROR_FAIL;
+		retval = target_write_u32(target, pSram, arr[i]);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("error writing bootloader SRAM parameters.");
 			break;
 		}
-		pSRAM;
+		pSram += sizeof(uint32_t);
 	}
 	if (retval != ERROR_OK)
-		pSramRetval = NULL;
-	LOG_DEBUG("pSram[pSramRetval] 0x%08X", (uint32_t)(uintptr_t)pSramRetval);
+		pSramRetval = 0;
+	LOG_DEBUG("pSram[pSramRetval] 0x%08X", pSramRetval);
 	return pSramRetval;
 }
 
 /** Read flash status from bootloader. */
-static int check_flash_status(struct target *target, uint32_t *address)
+static int check_flash_status(struct target *target, uint32_t address)
 {
 	uint32_t retflash;
-	int rc;
-	rc = target_read_u32(target, (uintptr_t)address, &retflash);
+	int retval;
+	retval = target_read_u32(target, address, &retflash);
 	/* target connection failed. */
-	if (rc != ERROR_OK) {
+	if (retval != ERROR_OK) {
 		LOG_DEBUG("%s:%d:%s(): status(0x%x)\n",
-			__FILE__, __LINE__, __func__, rc);
-		return rc;
+			__FILE__, __LINE__, __func__, retval);
+		return retval;
 	}
 	/* target flash failed, unknown cause. */
 	if (retflash != 0) {
 		LOG_ERROR("Flash not happy: status(0x%x)", retflash);
-		return ERROR_FLASH_OPERATION_FAILED;
+		retval = ERROR_FLASH_OPERATION_FAILED;
 	}
-	return ERROR_OK;
+	return retval;
 }
 
 /** Execute bootloader command with SRAM parameters. */
 static int ambiqmicro_exec_command(struct target *target,
 	uint32_t command,
-	uint32_t *flash_return_address)
+	uint32_t flash_return_address)
 {
 	int retval, retflash, timeout = 0;
 
@@ -978,7 +699,7 @@ static int ambiqmicro_exec_command(struct target *target,
 static int ambiqmicro_exec_sram_command(struct flash_bank *bank, uint32_t command,
 	const char *cmdname, int width, uint32_t arr[])
 {
-	uint32_t *bootloader_return_address;
+	uint32_t bootloader_return_address;
 	int retval;
 
 	/*
@@ -1173,7 +894,6 @@ static int ambiqmicro_protect_check(struct flash_bank *bank)
 				bank->sectors[page++].is_protected = protect;
 		}
 		LOG_DEBUG("sectors[%u]", page);
-		protectaddress += 4;
 	}
 	return retval;
 }
@@ -1445,27 +1165,128 @@ static int ambiqmicro_probe(struct flash_bank *bank)
 	struct ambiqmicro_flash_bank *ambiqmicro_info = bank->driver_priv;
 	int retval;
 
-	/*
-	 * If this is an ambiqmicro chip, it has flash; probe() is just
-	 * to figure out how much is present.  Only do it once.
-	 */
-	if (ambiqmicro_info->probed == 1) {
-		LOG_INFO("Target already probed.");
+	if (ambiqmicro_info->probed == 1)
 		return ERROR_OK;
-	}
 
 	LOG_CMD_START(cmdname);
 
 	/*
-	 * ambiqmicro_read_part_info() already handled error checking and
-	 * reporting.  Note that it doesn't write, so we don't care about
-	 * whether the target is halted or not.
+	 * ID the chip from PID0 and CHIPPN.
 	 */
-	retval = ambiqmicro_read_part_info(bank);
+	retval = target_read_u32(bank->target, REG_DEBUG_AMBIQ,
+			&ambiqmicro_info->pid0);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("Ambiq Debug Register not found.");
+		ambiqmicro_info->pid0 = REG_DEBUG_AMBIQ_ID_APOLLO2;
+	}
+	ambiqmicro_info->pid0 &= REG_DEBUG_AMBIQ_ID_MASK;
 
+	retval = target_read_u32(bank->target, REG_CONTROL_CHIPPN, &ambiqmicro_info->chippn);
 	if (retval != ERROR_OK)
-		return retval;
+		LOG_ERROR("Could not read Part Number, status(0x%x).", retval);
+	LOG_DEBUG("Part Number: 0x%08X", ambiqmicro_info->chippn);
 
+	/*
+	 * Get class from part number.
+	 */
+	ambiqmicro_info->target_class = (ambiqmicro_info->chippn & P_CLASS_MASK) >> P_CLASS_SHIFT;
+
+	/*
+	 * Target Name from part number class.
+	 */
+	if ((ambiqmicro_info->target_class > 0) &&
+		(ambiqmicro_info->target_class < ARRAY_SIZE(ambiqmicroParts)))
+		ambiqmicro_info->target_name =
+			ambiqmicroParts[ambiqmicro_info->target_class].partname;
+	else
+		ambiqmicro_info->target_name =
+			ambiqmicroParts[0].partname;
+
+	/*
+	 * Load apollo info.
+	 */
+	if (ambiqmicro_info->pid0 == REG_DEBUG_AMBIQ_ID_APOLLO) {
+		ambiqmicro_info->target_base_class = APOLLO_BASE_CLASS;
+		ambiqmicro_info->pagesize = APOLLO_PAGESIZE;
+		ambiqmicro_info->banksize = APOLLO_BANKSIZE;
+		ambiqmicro_info->bootloader = &apollo_bootldr;
+		ambiqmicro_info->flashsram_size = apollo_flashsram_size;
+		ambiqmicro_info->flashsram_array_size = ARRAY_SIZE(apollo_flashsram_size);
+		ambiqmicro_info->flashsram_max_size = APOLLOx_FLASHSRAM_MAX_SIZE;
+		ambiqmicro_info->flashsram_min_size = APOLLOx_FLASHSRAM_MIN_SIZE;
+		ambiqmicro_info->pins_array_size = ARRAY_SIZE(apollo_pins);
+		ambiqmicro_info->pins = apollo_pins;
+	} else if (ambiqmicro_info->pid0 == REG_DEBUG_AMBIQ_ID_APOLLO2) {
+		ambiqmicro_info->target_base_class = APOLLO2_BASE_CLASS;
+		ambiqmicro_info->pagesize = APOLLO2_PAGESIZE;
+		ambiqmicro_info->banksize = APOLLO2_BANKSIZE;
+		ambiqmicro_info->bootloader = &apollo2_bootldr;
+		ambiqmicro_info->flashsram_size = apollo2_flashsram_size;
+		ambiqmicro_info->flashsram_array_size = ARRAY_SIZE(apollo2_flashsram_size);
+		ambiqmicro_info->flashsram_max_size = APOLLOx_FLASHSRAM_MAX_SIZE;
+		ambiqmicro_info->flashsram_min_size = APOLLOx_FLASHSRAM_MIN_SIZE;
+		ambiqmicro_info->pins_array_size = ARRAY_SIZE(apollo2_pins);
+		ambiqmicro_info->pins = apollo2_pins;
+	} else {
+		if ((ambiqmicro_info->pid0 < REG_DEBUG_AMBIQ_ID_APOLLO2) && \
+			(ambiqmicro_info->pid0 > 0)) {
+			LOG_WARNING("Unknown Apollo, flash not supported (%u).",
+				ambiqmicro_info->pid0);
+		} else
+			LOG_ERROR("Unknown PID0 ID %u.", ambiqmicro_info->pid0);
+	}
+	/*
+	 * Get flash and sram hardware sizes, hardware size wins.
+	 */
+	int flashsize = get_flashsram_size(bank, FLASHSTART);
+	if (flashsize == ERROR_FAIL)
+		flashsize = DEFAULT_FLASH_SIZE;
+	ambiqmicro_info->total_flashsize = flashsize;
+
+	if (flashsize <= ambiqmicro_info->banksize) {
+		if (bank->bank_number == 0)
+			ambiqmicro_info->flashsize = flashsize;
+		else
+			ambiqmicro_info->flashsize = 0;
+	} else
+		ambiqmicro_info->flashsize = flashsize >> 1;
+	ambiqmicro_info->num_pages = ambiqmicro_info->flashsize / ambiqmicro_info->pagesize;
+
+	LOG_DEBUG("Total flashsize: %dKb, flashsize: %dKb, banksize: %dKb, banknumber: %d",
+		ambiqmicro_info->total_flashsize/1024,
+		ambiqmicro_info->flashsize/1024,
+		ambiqmicro_info->banksize/1024,
+		bank->bank_number);
+
+	int sramsize = get_flashsram_size(bank, SRAMSTART);
+	if (sramsize == ERROR_FAIL)
+		sramsize = DEFAULT_SRAM_SIZE;
+
+	ambiqmicro_info->sramsize = sramsize;
+
+	/*
+	 * Set revision, package, and qualified from chippn.
+	 */
+	uint32_t partnum = ambiqmicro_info->chippn;
+	ambiqmicro_info->target_revision = (partnum & P_REV_MASK) >> P_REV_SHIFT;
+	ambiqmicro_info->target_package = (partnum & P_PACK_MASK) >> P_PACK_SHIFT;
+	ambiqmicro_info->target_qual = (partnum & P_QUAL_MASK);
+	ambiqmicro_info->target_pins = (partnum & P_PINS_MASK) >> P_PINS_SHIFT;
+	ambiqmicro_info->target_temp = (partnum & P_TEMP_MASK) >> P_TEMP_SHIFT;
+
+	LOG_INFO(
+		"\nTarget name: %s, bank: %d, pages: %d, pagesize: %d KB"
+		"\n\tflash: %d KB, sram: %d KB",
+		ambiqmicro_info->target_name,
+		bank->bank_number,
+		ambiqmicro_info->num_pages,
+		ambiqmicro_info->pagesize/1024,
+		ambiqmicro_info->flashsize/1024,
+		ambiqmicro_info->sramsize/1024);
+
+	/*
+	 * Load bank information.
+	 */
 	if (bank->sectors) {
 		free(bank->sectors);
 		bank->sectors = NULL;
@@ -1742,7 +1563,7 @@ static int ambiqmicro_chipinfo(struct flash_bank *bank)
 	free(buf);
 
 	/* Display CHIPPN */
-	LOG_USER("Part Number: 0x%08X\n", read_chippn(bank));
+	LOG_USER("Part Number: 0x%08X\n", ambiqmicro_info->chippn);
 
 	LOG_CMD_END(retval, cmdname);
 
@@ -1761,7 +1582,7 @@ FLASH_BANK_COMMAND_HANDLER(ambiqmicro_flash_bank_command)
 	ambiqmicro_info = calloc(sizeof(struct ambiqmicro_flash_bank), 1);
 
 	bank->driver_priv = ambiqmicro_info;
-
+	/* This may be accessed before initialized. */
 	ambiqmicro_info->target_name = ambiqmicroParts[0].partname;
 
 	/* part wasn't probed yet */
