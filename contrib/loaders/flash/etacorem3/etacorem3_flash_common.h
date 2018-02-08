@@ -87,23 +87,18 @@
 #define MAGIC_ADDR_M3ETA    (0x0001FFF0)
 #define MAGIC_ADDR_ECM3501  (0x1001FFF0)
 
-/**
- * Load and entry points of wrapper function.
- * @note Depends on -work-area-phys in target file.
- */
-#define SRAM_ENTRY_POINT        (0x10000000)
 /** Location wrapper functions look for parameters, and top of stack. */
 #define SRAM_PARAM_START        (0x10001000)
 /** Target buffer start address for write operations. */
 #define SRAM_BUFFER_START       (0x10002000)
 /** Target buffer size. */
-#define SRAM_BUFFER_SIZE        (0x00004000)
+#define SRAM_BUFFER_SIZE        (0x00002000)
 
 /*
  * Jump table for ecm35xx BootROM's.
  */
-#define BOOTROM_LOADER_FLASH_M3ETA	(0x000004F8)
-#define BOOTROM_LOADER_FPGA_M3ETA	(0x00000564)
+#define BOOTROM_LOADER_FLASH_M3ETA      (0x000004F8)
+#define BOOTROM_LOADER_FPGA_M3ETA       (0x00000564)
 #define BOOTROM_FLASH_ERASE_ECM3501     (0x00000385)
 #define BOOTROM_FLASH_PROGRAM_ECM3501   (0x000004C9)
 #define BOOTROM_FLASH_ERASE_FPGA        (0x00000249)
@@ -119,6 +114,10 @@
 #define CHECK_FLASH_ERASE_ECM3501       (0x00b086b5)
 #define CHECK_FLASH_PROGRAM_ECM3501     (0x00b086b5)
 
+/*
+ * BootROM entry point definitions.
+ */
+
 typedef void (*BootROM_FlashWSHelper_T)(uint32_t);
 typedef uint32_t (*BootROM_ui32LoadHelper_T)(uint32_t);
 typedef void (*BootROM_ui32StoreHelper_T)(uint32_t,
@@ -129,5 +128,26 @@ typedef void (*BootROM_flash_ref_cell_erase_T)(uint32_t, uint32_t, uint32_t,
 typedef void (*BootROM_flash_erase_T)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 typedef void (*BootROM_flash_program_T)(uint32_t, uint32_t *, uint32_t, uint32_t, uint32_t,
 	uint32_t, uint32_t, uint32_t);
+
+/** SRAM parameters for write. */
+typedef struct {
+	uint32_t flash_address;
+	uint32_t flash_length;
+	uint32_t sram_buffer;
+	uint32_t options;	/**< 1 - Write 512 bytes at a time. */
+	uint32_t bootrom_entry_point;
+	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
+	uint32_t retval;
+} eta_write_interface;
+
+/** SRAM parameters for erase. */
+typedef struct {
+	uint32_t flash_address;
+	uint32_t flash_length;
+	uint32_t options;	/**< 1 - mass erase. */
+	uint32_t bootrom_entry_point;
+	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
+	uint32_t retval;
+} eta_erase_interface;
 
 #endif

@@ -37,40 +37,28 @@
 #include "eta_chip.h"
 #endif
 
-/**
- * Load and entry points of wrapper function.
- * @note Depends on -work-area-phys in target file.
- */
-#define SRAM_ENTRY_POINT        (0x10000000)
-/** Location wrapper functions look for parameters, and top of stack. */
-#define SRAM_PARAM_START        (0x10001000)
-/** Target buffer start address for write operations. */
-#define SRAM_BUFFER_START       (0x10002000)
-/** Target buffer size. */
-#define SRAM_BUFFER_SIZE        (0x00004000)
-
-/** SRAM parameters for write. */
-typedef struct {
-	uint32_t flash_address;
-	uint32_t flash_length;
-	uint32_t sram_buffer;
-	uint32_t options;	/**< 1 - Write 512 bytes at a time. */
-	uint32_t bootrom_entry_point;
-	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
-	uint32_t retval;
-} eta_write_interface;
-
 /** Flash helper function for write. */
 BootROM_flash_program_T BootROM_flash_program;
 #ifndef OCD
 SET_MAGIC_NUMBERS;
 #endif
 
-/** Write up to a sector to flash.
- * R0 contains address of parameter block. */
+/**
+ * Write up to a sector to flash.
+ * A non-zero value in R0 contains address of parameter block.
+ * R0 is 0 if built as a standalone executable.
+ *
+ * The purpose of sram_param_start is to capture the parameter in R0 and
+ * not the typical argc, argv of main.
+ */
 int main(uint32_t sram_param_start)
 {
 	eta_write_interface *flash_interface;
+	/*
+	 * This can also be built into a standalone executable with startup code.
+	 * The startup code calls =main(0,NULL), and sram_param_start is 0.
+	 * When sram_param_start is 0, the default SRAM_PARAM_START address is used.
+	 */
 	if (sram_param_start == 0)
 		flash_interface = (eta_write_interface *) SRAM_PARAM_START;
 	else
