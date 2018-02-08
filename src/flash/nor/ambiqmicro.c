@@ -302,7 +302,7 @@ struct ambiqmicro_flash_bank {
 	uint8_t target_package;
 	uint8_t target_qual;
 	uint8_t target_pins;
-	const char **pins;
+	char **pins;
 	int32_t pins_array_size;
 	uint8_t target_temp;
 
@@ -402,7 +402,7 @@ static const char *const ambiqmicroPackage[] = {
 };
 
 /** Number of Pins on Apollo packages. (ignore checkpatch const warning) */
-static const char *apollo_pins[] = {
+static char *apollo_pins[] = {
 	"25",
 	"41",
 	"64",
@@ -410,7 +410,7 @@ static const char *apollo_pins[] = {
 };
 
 /** Number of Pins on Apollo2 packages. (ignore checkpatch const warning) */
-static const char *apollo2_pins[] = {
+static char *apollo2_pins[] = {
 	"25",
 	"49",
 	"64",
@@ -581,7 +581,7 @@ static int clear_sram_parameters(struct target *target, uint32_t pSram, uint32_t
 static uint32_t setup_sram(struct target *target, int width, uint32_t arr[width])
 {
 	uint32_t pSramRetval = 0, pSram = SRAM_PARAM_START;
-	int retval;
+	int retval = ERROR_OK;
 
 	for (int i = 0; i < width; i++) {
 		LOG_DEBUG("pSram[0x%08X] 0x%08X", pSram, arr[i]);
