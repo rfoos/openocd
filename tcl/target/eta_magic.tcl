@@ -1,3 +1,11 @@
+#
+# Eta Compute ECM35xx
+#
+# http://www.etacompute.com
+# Rick Foos <rfoos@solengtech.com>
+#
+# Use setmagic command prior to running SRAM program.
+# Use clearmagic to run standard bootrom programs after reset.
 
 proc setmagic  { } {
     mww 0x1001FFF0 0xc001c0de
