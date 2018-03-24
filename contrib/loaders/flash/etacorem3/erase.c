@@ -35,6 +35,7 @@
 #include "etacorem3_flash_common.h"
 #else
 #include "eta_chip.h"
+#include "etacorem3_flash_common.h"
 #endif
 
 /** Flash helper function for erase. */
@@ -43,10 +44,10 @@ BootROM_flash_erase_T BootROM_flash_erase;
 SET_MAGIC_NUMBERS;
 #endif
 
+#if OCD
 /**
- * Erase range of sectors, or mass erase all sectors of flash.
+ * Write up to a sector to flash.
  * A non-zero value in R0 contains address of parameter block.
- * R0 is 0 if built as a standalone executable.
  *
  * The purpose of sram_param_start is to capture the parameter in R0 and
  * not the typical argc, argv of main.
@@ -55,15 +56,22 @@ int main(uint32_t sram_param_start)
 {
 	eta_erase_interface *flash_interface;
 
-	/*
-	 * This can also be built into a standalone executable with startup code.
-	 * The startup code calls =main(0,NULL), and sram_param_start is 0.
-	 * When sram_param_start is 0, the default SRAM_PARAM_START address is used.
-	 */
 	if (sram_param_start == 0)
 		flash_interface = (eta_erase_interface *) SRAM_PARAM_START;
 	else
 		flash_interface = (eta_erase_interface *) sram_param_start;
+#else
+/**
+ * Write up to a sector to flash.
+ * Standalone executable with startup code.
+ * Use SRAM_PARAM_START to locate parameter block.
+ */
+int main(void)
+{
+	eta_write_interface *flash_interface;
+
+	flash_interface = (eta_write_interface *) SRAM_PARAM_START;
+#endif
 
 	uint32_t flash_address = flash_interface->flash_address;
 	uint32_t flash_length = flash_interface->flash_length;

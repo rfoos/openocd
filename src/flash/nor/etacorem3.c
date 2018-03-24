@@ -575,6 +575,10 @@ static int etacorem3_write(struct flash_bank *bank,
 		return ERROR_FAIL;
 	}
 
+    if ((count%0x34) == 0) {
+        LOG_INFO("Modulo 52 %u", count);
+    }
+
 	/*
 	 * Load Magic numbers required for bootrom help function execution.
 	 */
