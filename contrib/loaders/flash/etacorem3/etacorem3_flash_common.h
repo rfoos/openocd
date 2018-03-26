@@ -21,29 +21,13 @@
  *
  */
 
-#ifndef ETA_FLASH_COMMON_H
-#define ETA_FLASH_COMMON_H
+#ifndef _ETA_FLASH_COMMON_H
+#define _ETA_FLASH_COMMON_H
 
 #ifndef IOREG
 #define IOREG(x)                                                              \
 	(*((volatile uint32_t *)(x)))
 #endif
-
-// this should come from the CSP
-#define ETA_COMMON_SRAM_MAX  0x10020000
-#define ETA_COMMON_SRAM_BASE 0x10000000
-#define ETA_COMMON_SRAM_SIZE (ETA_COMMON_SRAM_MAX  - ETA_COMMON_SRAM_BASE)
-
-#define ETA_COMMON_SRAM_TOP_ADDR (ETA_COMMON_SRAM_MAX - sizeof(eta_csp_common_sram_top_t))
-
-#define ETA_COMMON_FLASH_MAX  0x01080000
-#define ETA_COMMON_FLASH_BASE 0x01000000
-#define ETA_COMMON_FLASH_SIZE (ETA_COMMON_FLASH_MAX  - ETA_COMMON_FLASH_BASE)
-#define ETA_COMMON_FLASH_PAGE_SIZE 4096
-#define ETA_COMMON_FLASH_PAGE_ADDR_BITS 12
-#define ETA_COMMON_FLASH_PAGE_ADDR_MASK 0xFFFFF000
-
-#define SET_MAGIC_NUMBERS  /* nothing here */
 
 
 #ifdef SIMULATION
@@ -56,7 +40,6 @@
 #define BOOTROM_FLASH_TPGS_COUNT   (0x28)
 #define BOOTROM_FLASH_TPROG_COUNT  (0x50)
 #else
-/* use these constants for proper operation in a real chip. */
 #define BOOTROM_FLASH_TNVS_COUNT   (0x10)
 #define BOOTROM_FLASH_TRE_COUNT    (0x28)
 #define BOOTROM_FLASH_TNVH_COUNT   (0x300)
@@ -66,15 +49,10 @@
 #define BOOTROM_FLASH_TPROG_COUNT  (0x78)
 #endif
 
-#define ETA_CSP_FLASH_REF_CELL_ERASE()  BootROM_flash_ref_cell_erase(BOOTROM_FLASH_TNVS_COUNT,      \
-                                                                     BOOTROM_FLASH_TRE_COUNT,       \
-                                                                     BOOTROM_FLASH_TNVH_COUNT,      \
-                                                                     BOOTROM_FLASH_TRCV_COUNT);
-
-#define ETA_CSP_FLASH_MASS_ERASE()      BootROM_flash_erase(0x01000000,1, BOOTROM_FLASH_TNVS_COUNT, \
-                                                       BOOTROM_FLASH_TERASE_COUNT,                  \
-                                                       BOOTROM_FLASH_TNVH_COUNT,                    \
-                                                       BOOTROM_FLASH_TRCV_COUNT);
+#define ETA_CSP_FLASH_MASS_ERASE()      BootROM_flash_erase(0x01000000, 1, BOOTROM_FLASH_TNVS_COUNT, \
+		BOOTROM_FLASH_TERASE_COUNT,                  \
+		BOOTROM_FLASH_TNVH_COUNT,                    \
+		BOOTROM_FLASH_TRCV_COUNT);
 
 #define ETA_CSP_FLASH_PAGE_ERASE(ADDR)  BootROM_flash_erase(ADDR, 0, BOOTROM_FLASH_TNVS_COUNT,      \
 		BOOTROM_FLASH_TERASE_COUNT,                  \
@@ -88,7 +66,7 @@
 		BOOTROM_FLASH_TPROG_COUNT,          \
 		BOOTROM_FLASH_TNVH_COUNT,           \
 		BOOTROM_FLASH_TRCV_COUNT);
-#if 0
+
 #define ETA_COMMON_SRAM_MAX  0x10020000
 #define ETA_COMMON_SRAM_BASE 0x10000000
 #define ETA_COMMON_SRAM_SIZE (ETA_COMMON_SRAM_MAX  - ETA_COMMON_SRAM_BASE)
@@ -101,7 +79,7 @@
 #define ETA_COMMON_FLASH_PAGE_SIZE 4096
 #define ETA_COMMON_FLASH_PAGE_ADDR_BITS 12
 #define ETA_COMMON_FLASH_PAGE_ADDR_MASK 0xFFFFF000
-#endif
+
 /*
  * SRAM Address for magic numbers.
  */
@@ -172,4 +150,4 @@ typedef struct {
 	uint32_t retval;
 } eta_erase_interface;
 
-#endif // ETA_CSP_COMMON_H
+#endif

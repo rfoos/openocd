@@ -152,11 +152,11 @@ int main(void)
                     /* write 4 more bytes, in 64 bit address. */
                     num_extra++;
                 }
-				ETA_CSP_FLASH_PROGRAM(tmp_adr, tmp_src,
+				ETA_CSP_FLASH_PROGRAM(tmp_adr, (uint32_t *) tmp_src,
 					((bootrom_version == 0) ? num_extra * 2 : num_extra));
 			} else {
 				flash_interface->retval = 6;
-				ETA_CSP_FLASH_PROGRAM(tmp_adr, tmp_src,
+				ETA_CSP_FLASH_PROGRAM(tmp_adr, (uint32_t *) tmp_src,
 					((bootrom_version == 0) ? block_size * 2 : block_size));
 			}
 			tmp_adr += increment_size;	/* Always bytes. */
