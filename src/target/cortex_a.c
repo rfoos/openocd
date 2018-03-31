@@ -206,20 +206,24 @@ static int cortex_a_init_debug_access(struct target *target)
 
 	/* lock memory-mapped access to debug registers to prevent
 	 * software interference */
-	retval = mem_ap_write_atomic_u32(armv7a->debug_ap,
+	retval = mem_ap_write_u32(armv7a->debug_ap,
 			armv7a->debug_base + CPUDBG_LOCKACCESS, 0);
 	if (retval != ERROR_OK)
 		return retval;
 
 	/* Disable cacheline fills and force cache write-through in debug state */
-	retval = mem_ap_write_atomic_u32(armv7a->debug_ap,
+	retval = mem_ap_write_u32(armv7a->debug_ap,
 			armv7a->debug_base + CPUDBG_DSCCR, 0);
 	if (retval != ERROR_OK)
 		return retval;
 
 	/* Disable TLB lookup and refill/eviction in debug state */
-	retval = mem_ap_write_atomic_u32(armv7a->debug_ap,
+	retval = mem_ap_write_u32(armv7a->debug_ap,
 			armv7a->debug_base + CPUDBG_DSMCR, 0);
+	if (retval != ERROR_OK)
+		return retval;
+
+	retval = dap_run(armv7a->debug_ap->dap);
 	if (retval != ERROR_OK)
 		return retval;
 
@@ -1496,10 +1500,22 @@ static int cortex_a_set_breakpoint(struct target *target,
 			brp_list[brp_i].value);
 	} else if (breakpoint->type == BKPT_SOFT) {
 		uint8_t code[4];
+		/* length == 2: Thumb breakpoint */
 		if (breakpoint->length == 2)
 			buf_set_u32(code, 0, 32, ARMV5_T_BKPT(0x11));
 		else
+		/* length == 3: Thumb-2 breakpoint, actual encoding is
+		 * a regular Thumb BKPT instruction but we replace a
+		 * 32bit Thumb-2 instruction, so fix-up the breakpoint
+		 * length
+		 */
+		if (breakpoint->length == 3) {
+			buf_set_u32(code, 0, 32, ARMV5_T_BKPT(0x11));
+			breakpoint->length = 4;
+		} else
+			/* length == 4, normal ARM breakpoint */
 			buf_set_u32(code, 0, 32, ARMV5_BKPT(0x11));
+
 		retval = target_read_memory(target,
 				breakpoint->address & 0xFFFFFFFE,
 				breakpoint->length, 1,
@@ -3162,6 +3178,8 @@ static int cortex_a_target_create(struct target *target, Jim_Interp *interp)
 
 	cortex_a->armv7a_common.is_armv7r = false;
 
+	cortex_a->armv7a_common.arm.arm_vfp_version = ARM_VFP_V3;
+
 	return cortex_a_init_arch_info(target, cortex_a, target->tap);
 }
 
@@ -3478,13 +3496,6 @@ struct target_type cortexa_target = {
 
 static const struct command_registration cortex_r4_exec_command_handlers[] = {
 	{
-		.name = "cache_info",
-		.handler = cortex_a_handle_cache_info_command,
-		.mode = COMMAND_EXEC,
-		.help = "display information about target caches",
-		.usage = "",
-	},
-	{
 		.name = "dbginit",
 		.handler = cortex_a_handle_dbginit_command,
 		.mode = COMMAND_EXEC,
@@ -3506,7 +3517,7 @@ static const struct command_registration cortex_r4_command_handlers[] = {
 		.chain = arm_command_handlers,
 	},
 	{
-		.chain = armv7a_command_handlers,
+		.chain = dap_command_handlers,
 	},
 	{
 		.name = "cortex_r4",

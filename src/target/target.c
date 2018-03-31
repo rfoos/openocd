@@ -510,7 +510,9 @@ struct target *get_target_by_num(int num)
 
 struct target *get_current_target(struct command_context *cmd_ctx)
 {
-	struct target *target = get_target_by_num(cmd_ctx->current_target);
+	struct target *target = cmd_ctx->current_target_override
+		? cmd_ctx->current_target_override
+		: cmd_ctx->current_target;
 
 	if (target == NULL) {
 		LOG_ERROR("BUG: current_target out of bounds");
@@ -808,8 +810,7 @@ done:
 }
 
 /**
- * Downloads a target-specific native code algorithm to the target,
- * executes and leaves it running.
+ * Executes a target-specific native code algorithm and leaves it running.
  *
  * @param target used to run the algorithm
  * @param arch_info target-specific description of the algorithm.
@@ -882,12 +883,45 @@ done:
 }
 
 /**
- * Executes a target-specific native code algorithm in the target.
- * It differs from target_run_algorithm in that the algorithm is asynchronous.
- * Because of this it requires an compliant algorithm:
- * see contrib/loaders/flash/stm32f1x.S for example.
+ * Streams data to a circular buffer on target intended for consumption by code
+ * running asynchronously on target.
+ *
+ * This is intended for applications where target-specific native code runs
+ * on the target, receives data from the circular buffer, does something with
+ * it (most likely writing it to a flash memory), and advances the circular
+ * buffer pointer.
+ *
+ * This assumes that the helper algorithm has already been loaded to the target,
+ * but has not been started yet. Given memory and register parameters are passed
+ * to the algorithm.
+ *
+ * The buffer is defined by (buffer_start, buffer_size) arguments and has the
+ * following format:
+ *
+ *     [buffer_start + 0, buffer_start + 4):
+ *         Write Pointer address (aka head). Written and updated by this
+ *         routine when new data is written to the circular buffer.
+ *     [buffer_start + 4, buffer_start + 8):
+ *         Read Pointer address (aka tail). Updated by code running on the
+ *         target after it consumes data.
+ *     [buffer_start + 8, buffer_start + buffer_size):
+ *         Circular buffer contents.
+ *
+ * See contrib/loaders/flash/stm32f1x.S for an example.
  *
  * @param target used to run the algorithm
+ * @param buffer address on the host where data to be sent is located
+ * @param count number of blocks to send
+ * @param block_size size in bytes of each block
+ * @param num_mem_params count of memory-based params to pass to algorithm
+ * @param mem_params memory-based params to pass to algorithm
+ * @param num_reg_params count of register-based params to pass to algorithm
+ * @param reg_params memory-based params to pass to algorithm
+ * @param buffer_start address on the target of the circular buffer structure
+ * @param buffer_size size of the circular buffer structure
+ * @param entry_point address on the target to execute to start the algorithm
+ * @param exit_point address at which to set a breakpoint to catch the
+ *     end of the algorithm; can be 0 if target triggers a breakpoint itself
  */
 
 int target_run_flash_async_algorithm(struct target *target,
@@ -1397,7 +1431,6 @@ int target_register_trace_callback(int (*callback)(struct target *target,
 int target_register_timer_callback(int (*callback)(void *priv), int time_ms, int periodic, void *priv)
 {
 	struct target_timer_callback **callbacks_p = &target_timer_callbacks;
-	struct timeval now;
 
 	if (callback == NULL)
 		return ERROR_COMMAND_SYNTAX_ERROR;
@@ -1414,14 +1447,8 @@ int target_register_timer_callback(int (*callback)(void *priv), int time_ms, int
 	(*callbacks_p)->time_ms = time_ms;
 	(*callbacks_p)->removed = false;
 
-	gettimeofday(&now, NULL);
-	(*callbacks_p)->when.tv_usec = now.tv_usec + (time_ms % 1000) * 1000;
-	time_ms -= (time_ms % 1000);
-	(*callbacks_p)->when.tv_sec = now.tv_sec + (time_ms / 1000);
-	if ((*callbacks_p)->when.tv_usec > 1000000) {
-		(*callbacks_p)->when.tv_usec = (*callbacks_p)->when.tv_usec - 1000000;
-		(*callbacks_p)->when.tv_sec += 1;
-	}
+	gettimeofday(&(*callbacks_p)->when, NULL);
+	timeval_add_time(&(*callbacks_p)->when, 0, time_ms * 1000);
 
 	(*callbacks_p)->priv = priv;
 	(*callbacks_p)->next = NULL;
@@ -1556,14 +1583,8 @@ int target_call_trace_callbacks(struct target *target, size_t len, uint8_t *data
 static int target_timer_callback_periodic_restart(
 		struct target_timer_callback *cb, struct timeval *now)
 {
-	int time_ms = cb->time_ms;
-	cb->when.tv_usec = now->tv_usec + (time_ms % 1000) * 1000;
-	time_ms -= (time_ms % 1000);
-	cb->when.tv_sec = now->tv_sec + time_ms / 1000;
-	if (cb->when.tv_usec > 1000000) {
-		cb->when.tv_usec = cb->when.tv_usec - 1000000;
-		cb->when.tv_sec += 1;
-	}
+	cb->when = *now;
+	timeval_add_time(&cb->when, 0, cb->time_ms * 1000L);
 	return ERROR_OK;
 }
 
@@ -1607,9 +1628,7 @@ static int target_call_timer_callbacks_check_time(int checktime)
 
 		bool call_it = (*callback)->callback &&
 			((!checktime && (*callback)->periodic) ||
-			 now.tv_sec > (*callback)->when.tv_sec ||
-			 (now.tv_sec == (*callback)->when.tv_sec &&
-			  now.tv_usec >= (*callback)->when.tv_usec));
+			 timeval_compare(&now, &(*callback)->when) >= 0);
 
 		if (call_it)
 			target_call_timer_callback(*callback, &now);
@@ -2028,8 +2047,7 @@ static int target_profiling_default(struct target *target, uint32_t *samples,
 			break;
 
 		gettimeofday(&now, NULL);
-		if ((sample_count >= max_num_samples) ||
-			((now.tv_sec >= timeout.tv_sec) && (now.tv_usec >= timeout.tv_usec))) {
+		if ((sample_count >= max_num_samples) || timeval_compare(&now, &timeout) >= 0) {
 			LOG_INFO("Profiling completed. %" PRIu32 " samples.", sample_count);
 			break;
 		}
@@ -2489,7 +2507,10 @@ static int find_target(struct command_context *cmd_ctx, const char *name)
 		return ERROR_FAIL;
 	}
 
-	cmd_ctx->current_target = target->target_number;
+	cmd_ctx->current_target = target;
+	if (cmd_ctx->current_target_override)
+		cmd_ctx->current_target_override = target;
+
 	return ERROR_OK;
 }
 
@@ -2517,7 +2538,7 @@ COMMAND_HANDLER(handle_targets_command)
 		else
 			state = "tap-disabled";
 
-		if (CMD_CTX->current_target == target->target_number)
+		if (CMD_CTX->current_target == target)
 			marker = '*';
 
 		/* keep columns lined up to match the headers above */
@@ -3116,6 +3137,10 @@ COMMAND_HANDLER(handle_md_command)
 		COMMAND_PARSE_NUMBER(uint, CMD_ARGV[1], count);
 
 	uint8_t *buffer = calloc(count, size);
+	if (buffer == NULL) {
+		LOG_ERROR("Failed to allocate md read buffer");
+		return ERROR_FAIL;
+	}
 
 	struct target *target = get_current_target(CMD_CTX);
 	int retval = fn(target, address, size, count, buffer);
@@ -3838,7 +3863,7 @@ typedef unsigned char UNIT[2];  /* unit of profiling */
 
 /* Dump a gmon.out histogram file. */
 static void write_gmon(uint32_t *samples, uint32_t sampleNum, const char *filename, bool with_range,
-			uint32_t start_address, uint32_t end_address, struct target *target)
+			uint32_t start_address, uint32_t end_address, struct target *target, uint32_t duration_ms)
 {
 	uint32_t i;
 	FILE *f = fopen(filename, "w");
@@ -3906,7 +3931,8 @@ static void write_gmon(uint32_t *samples, uint32_t sampleNum, const char *filena
 	writeLong(f, min, target);			/* low_pc */
 	writeLong(f, max, target);			/* high_pc */
 	writeLong(f, numBuckets, target);	/* # of buckets */
-	writeLong(f, 100, target);			/* KLUDGE! We lie, ca. 100Hz best case. */
+	float sample_rate = sampleNum / (duration_ms / 1000.0);
+	writeLong(f, sample_rate, target);
 	writeString(f, "seconds");
 	for (i = 0; i < (15-strlen("seconds")); i++)
 		writeData(f, &zero, 1);
@@ -3955,6 +3981,7 @@ COMMAND_HANDLER(handle_profile_command)
 		return ERROR_FAIL;
 	}
 
+	uint64_t timestart_ms = timeval_ms();
 	/**
 	 * Some cores let us sample the PC without the
 	 * annoying halt/resume step; for example, ARMv7 PCSR.
@@ -3966,6 +3993,7 @@ COMMAND_HANDLER(handle_profile_command)
 		free(samples);
 		return retval;
 	}
+	uint32_t duration_ms = timeval_ms() - timestart_ms;
 
 	assert(num_of_samples <= MAX_PROFILE_SAMPLE_NUM);
 
@@ -3998,7 +4026,7 @@ COMMAND_HANDLER(handle_profile_command)
 	}
 
 	write_gmon(samples, num_of_samples, CMD_ARGV[1],
-		   with_range, start_address, end_address, target);
+		   with_range, start_address, end_address, target, duration_ms);
 	command_print(CMD_CTX, "Wrote %s", CMD_ARGV[1]);
 
 	free(samples);
@@ -4418,17 +4446,28 @@ void target_handle_event(struct target *target, enum target_event e)
 
 	for (teap = target->event_action; teap != NULL; teap = teap->next) {
 		if (teap->event == e) {
-			LOG_DEBUG("target: (%d) %s (%s) event: %d (%s) action: %s",
+			LOG_DEBUG("target(%d): %s (%s) event: %d (%s) action: %s",
 					   target->target_number,
 					   target_name(target),
 					   target_type_name(target),
 					   e,
 					   Jim_Nvp_value2name_simple(nvp_target_event, e)->name,
 					   Jim_GetString(teap->body, NULL));
+
+			/* Override current target by the target an event
+			 * is issued from (lot of scripts need it).
+			 * Return back to previous override as soon
+			 * as the handler processing is done */
+			struct command_context *cmd_ctx = current_command_context(teap->interp);
+			struct target *saved_target_override = cmd_ctx->current_target_override;
+			cmd_ctx->current_target_override = target;
+
 			if (Jim_EvalObj(teap->interp, teap->body) != JIM_OK) {
 				Jim_MakeErrorMessage(teap->interp);
 				command_print(NULL, "%s\n", Jim_GetString(Jim_GetResult(teap->interp), NULL));
 			}
+
+			cmd_ctx->current_target_override = saved_target_override;
 		}
 	}
 }
@@ -5506,7 +5545,7 @@ static int target_create(Jim_GetOptInfo *goi)
 	target = calloc(1, sizeof(struct target));
 	/* set target number */
 	target->target_number = new_target_number();
-	cmd_ctx->current_target = target->target_number;
+	cmd_ctx->current_target = target;
 
 	/* allocate memory for each unique target type */
 	target->type = calloc(1, sizeof(struct target_type));

@@ -4217,6 +4217,9 @@ Calling this twice with two different event names assigns
 two different handlers, but calling it twice with the
 same event name assigns only one handler.
 
+Current target is temporarily overridden to the event issuing target
+before handler code starts and switched back after handler is done.
+
 @item @code{-work-area-backup} (@option{0}|@option{1}) -- says
 whether the work area gets backed up; by default,
 @emph{it is not backed up.}
@@ -4913,17 +4916,60 @@ functionality is available through the @command{flash write_bank},
 @item @var{ir} ... is loaded into the JTAG IR to map the flash as the JTAG DR.
 For the bitstreams generated from @file{xilinx_bscan_spi.py} this is the
 @var{USER1} instruction.
-@item @var{dr_length} ... is the length of the DR register. This will be 1 for
-@file{xilinx_bscan_spi.py} bitstreams and most other cases.
 @end itemize
 
 @example
 target create $_TARGETNAME testee -chain-position $_CHIPNAME.fpga
 set _XILINX_USER1 0x02
-set _DR_LENGTH 1
 flash bank $_FLASHNAME spi 0x0 0 0 0 \
-           $_TARGETNAME $_XILINX_USER1 $_DR_LENGTH
+           $_TARGETNAME $_XILINX_USER1
 @end example
+@end deffn
+
+@deffn {Flash Driver} xcf
+@cindex Xilinx Platform flash driver
+@cindex xcf
+Xilinx FPGAs can be configured from specialized flash ICs named Platform Flash.
+It is (almost) regular NOR flash with erase sectors, program pages, etc. The
+only difference is special registers controlling its FPGA specific behavior.
+They must be properly configured for successful FPGA loading using
+additional @var{xcf} driver command:
+
+@deffn Command {xcf ccb} <bank_id>
+command accepts additional parameters:
+@itemize
+@item @var{external|internal} ... selects clock source.
+@item @var{serial|parallel} ... selects serial or parallel data bus mode.
+@item @var{slave|master} ... selects slave of master mode for flash device.
+@item @var{40|20} ... selects clock frequency in MHz for internal clock
+in master mode.
+@end itemize
+@example
+xcf ccb 0 external parallel slave 40
+@end example
+All of them must be specified even if clock frequency is pointless
+in slave mode. If only bank id specified than command prints current
+CCB register value. Note: there is no need to write this register
+every time you erase/program data sectors because it stores in
+dedicated sector.
+@end deffn
+
+@deffn Command {xcf configure} <bank_id>
+Initiates FPGA loading procedure. Useful if your board has no "configure"
+button.
+@example
+xcf configure 0
+@end example
+@end deffn
+
+Additional driver notes:
+@itemize
+@item Only single revision supported.
+@item Driver automatically detects need of bit reverse, but
+only "bin" (raw binary, do not confuse it with "bit") and "mcs"
+(Intel hex) file types supported.
+@item For additional info check xapp972.pdf and ug380.pdf.
+@end itemize
 @end deffn
 
 @deffn {Flash Driver} lpcspifi
@@ -5298,6 +5344,30 @@ The AVR 8-bit microcontrollers from Atmel integrate flash memory.
 @comment - defines mass_erase ... pointless given flash_erase_address
 @end deffn
 
+@deffn {Flash Driver} bluenrg-x
+STMicroelectronics BlueNRG-1 and BlueNRG-2 Bluetooth low energy wireless system-on-chip. They include ARM Cortex-M0 core and internal flash memory.
+The driver automatically recognizes these chips using
+the chip identification registers, and autoconfigures itself.
+
+@example
+flash bank $_FLASHNAME bluenrg-x 0 0 0 0 $_TARGETNAME
+@end example
+
+Note that when users ask to erase all the sectors of the flash, a mass erase command is used which is faster than erasing
+each single sector one by one.
+
+@example
+flash erase_sector 0 0 79 # It will perform a mass erase on BlueNRG-1
+@end example
+
+@example
+flash erase_sector 0 0 127 # It will perform a mass erase on BlueNRG-2
+@end example
+
+Triggering a mass erase is also useful when users want to disable readout protection.
+
+@end deffn
+
 @deffn {Flash Driver} efm32
 All members of the EFM32 microcontroller family from Energy Micro include
 internal flash and use ARM Cortex-M3 cores. The driver automatically recognizes
@@ -5316,6 +5386,37 @@ The @var{num} parameter is a value shown by @command{flash banks}.
 Note that in order for this command to take effect, the target needs to be reset.
 @emph{The current implementation is incomplete. Unprotecting flash pages is not
 supported.}
+@end deffn
+
+@deffn {Flash Driver} etacorem3
+Eta Compute's ECM35xx series SOC's include ARM's Cortex-M3 and a Dual MAC DSP.
+Both cores are implemented using Eta Compute's proprietary
+DIAL Technology
+supporting deep subthreshold and self-timed operation (140Khz - 100Mhz)
+for ultra-low power IOT applications including:
+@itemize @bullet
+@item IOT Sensor Nodes
+@item BLE Beacon
+@item Wearable Computation.
+@end itemize
+ECM35XX SOC's include an ADC to reduce the need for external sensors, and
+several PMIC / Buck Converters that reduce power requirements.
+
+The driver automatically recognizes flash size, and autoconfigures itself.
+In some cases the optional BOARDTYPE parameter is used by the driver.
+Separate board config files are available defining this parameter.
+@example
+# Optional parameter for Board/FPGA type.
+flash bank $_FLASHNAME etacorem3 0 0 0 0 $_TARGETNAME $_BOARDTYPE
+@end example
+
+There is one additional command defined in the @var{etacorem3} driver:
+
+@deffn Command {etacorem3 mass_erase} num
+Mass erases the entire etacorem3 device.
+The @var{num} parameter is a value shown by @command{flash banks}.
+@end deffn
+
 @end deffn
 
 @deffn {Flash Driver} fm3
@@ -5358,7 +5459,7 @@ from NXP (former Freescale) include
 internal flash and use ARM Cortex-M0+ or M4 cores. The driver automatically
 recognizes flash size and a number of flash banks (1-4) using the chip
 identification register, and autoconfigures itself.
-Use kinetis_ke driver for KE0x devices.
+Use kinetis_ke driver for KE0x and KEAx devices.
 
 The @var{kinetis} driver defines option:
 @itemize
@@ -5451,7 +5552,7 @@ Command disables watchdog timer.
 
 @deffn {Flash Driver} kinetis_ke
 @cindex kinetis_ke
-KE0x members of the Kinetis microcontroller family from Freescale include
+KE0x and KEAx members of the Kinetis microcontroller family from NXP include
 internal flash and use ARM Cortex-M0+. The driver automatically recognizes
 the KE0x sub-family using the chip identification register, and
 autoconfigures itself.
@@ -5845,6 +5946,62 @@ The @var{num} parameter is a value shown by @command{flash banks}.
 Erases the contents of the flash memory, protection and security lock.
 
 The @var{num} parameter is a value shown by @command{flash banks}.
+@end deffn
+@end deffn
+
+@deffn {Flash Driver} psoc6
+Supports PSoC6 (CY8C6xxx) family of Cypress microcontrollers.
+PSoC6 is a dual-core device with CM0+ and CM4 cores. Both cores share
+the same Flash/RAM/MMIO address space.
+
+Flash in PSoC6 is split into three regions:
+@itemize @bullet
+@item Main Flash - this is the main storage for user application.
+Total size varies among devices, sector size: 256 kBytes, row size:
+512 bytes. Supports erase operation on individual rows.
+@item Work Flash - intended to be used as storage for user data
+(e.g. EEPROM emulation). Total size: 32 KBytes, sector size: 32 KBytes,
+row size: 512 bytes.
+@item Supervisory Flash - special region which contains device-specific
+service data. This region does not support erase operation. Only few rows can
+be programmed by the user, most of the rows are read only. Programming
+operation will erase row automatically.
+@end itemize
+
+All three flash regions are supported by the driver. Flash geometry is detected
+automatically by parsing data in SPCIF_GEOMETRY register.
+
+PSoC6 is equipped with NOR Flash so erased Flash reads as 0x00.
+
+@example
+flash bank main_flash_cm0 psoc6 0x10000000 0 0 0 $@{TARGET@}.cm0
+flash bank work_flash_cm0 psoc6 0x14000000 0 0 0 $@{TARGET@}.cm0
+flash bank super_flash_user_cm0 psoc6 0x16000800 0 0 0 $@{TARGET@}.cm0
+flash bank super_flash_nar_cm0 psoc6 0x16001A00 0 0 0 $@{TARGET@}.cm0
+flash bank super_flash_key_cm0 psoc6 0x16005A00 0 0 0 $@{TARGET@}.cm0
+flash bank super_flash_toc2_cm0 psoc6 0x16007C00 0 0 0 $@{TARGET@}.cm0
+
+flash bank main_flash_cm4 psoc6 0x10000000 0 0 0 $@{TARGET@}.cm4
+flash bank work_flash_cm4 psoc6 0x14000000 0 0 0 $@{TARGET@}.cm4
+flash bank super_flash_user_cm4 psoc6 0x16000800 0 0 0 $@{TARGET@}.cm4
+flash bank super_flash_nar_cm4 psoc6 0x16001A00 0 0 0 $@{TARGET@}.cm4
+flash bank super_flash_key_cm4 psoc6 0x16005A00 0 0 0 $@{TARGET@}.cm4
+flash bank super_flash_toc2_cm4 psoc6 0x16007C00 0 0 0 $@{TARGET@}.cm4
+@end example
+
+psoc6-specific commands
+@deffn Command {psoc6 reset_halt}
+Command can be used to simulate broken Vector Catch from gdbinit or tcl scripts.
+When invoked for CM0+ target, it will set break point at application entry point
+and issue SYSRESETREQ. This will reset both cores and all peripherals. CM0+ will
+reset CM4 during boot anyway so this is safe. On CM4 target, VECTRESET is used
+instead of SYSRESETREQ to avoid unwanted reset of CM0+;
+@end deffn
+
+@deffn Command {psoc6 mass_erase} num
+Erases the contents given flash bank. The @var{num} parameter is a value shown
+by @command{flash banks}.
+Note: only Main and Work flash regions support Erase operation.
 @end deffn
 @end deffn
 
@@ -8375,6 +8532,11 @@ halting or resuming of all cores in the group. The command @code{target smp} def
 group. With SMP handling disabled, all targets need to be treated individually.
 @end deffn
 
+@deffn Command {aarch64 maskisr} [@option{on}|@option{off}]
+Selects whether interrupts will be processed when single stepping. The default configuration is
+@option{on}.
+@end deffn
+
 @section Intel Architecture
 
 Intel Quark X10xx is the first product in the Quark family of SoCs. It is an IA-32
@@ -8779,11 +8941,27 @@ way to represent JTAG test patterns in text files.
 In a debug session using JTAG for its transport protocol,
 OpenOCD supports running such test files.
 
-@deffn Command {svf} filename [@option{quiet}]
+@deffn Command {svf} @file{filename} [@option{-tap @var{tapname}}] [@option{[-]quiet}] @
+                     [@option{[-]nil}] [@option{[-]progress}] [@option{[-]ignore_error}]
 This issues a JTAG reset (Test-Logic-Reset) and then
 runs the SVF script from @file{filename}.
-Unless the @option{quiet} option is specified,
-each command is logged before it is executed.
+
+Arguments can be specified in any order; the optional dash doesn't
+affect their semantics.
+
+Command options:
+@itemize @minus
+@item @option{-tap @var{tapname}} ignore IR and DR headers and footers
+specified by the SVF file with HIR, TIR, HDR and TDR commands;
+instead, calculate them automatically according to the current JTAG
+chain configuration, targetting @var{tapname};
+@item @option{[-]quiet} do not log every command before execution;
+@item @option{[-]nil} ``dry run'', i.e., do not perform any operations
+on the real interface;
+@item @option{[-]progress} enable progress indication;
+@item @option{[-]ignore_error} continue execution despite TDO check
+errors.
+@end itemize
 @end deffn
 
 @section XSVF: Xilinx Serial Vector Format

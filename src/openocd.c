@@ -344,10 +344,12 @@ int openocd_main(int argc, char *argv[])
 
 	unregister_all_commands(cmd_ctx, NULL);
 
-	/* free commandline interface */
-	command_done(cmd_ctx);
+	/* Shutdown commandline interface */
+	command_exit(cmd_ctx);
 
 	adapter_quit();
+
+	free_config();
 
 	if (ERROR_FAIL == ret)
 		return EXIT_FAILURE;
