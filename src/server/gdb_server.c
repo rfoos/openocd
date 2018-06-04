@@ -130,6 +130,9 @@ static int gdb_flash_program = 1;
  * Disabled by default.
  */
 static int gdb_report_data_abort;
+/* If set, errors when accessing registers are reported to gdb. Disabled by
+ * default. */
+static int gdb_report_register_access_error;
 
 /* set if we are sending target descriptions to gdb
  * via qXfer:features:read packet */
@@ -732,7 +735,6 @@ static void gdb_signal_reply(struct target *target, struct connection *connectio
 	} else {
 		if (gdb_connection->ctrl_c) {
 			signal_var = 0x2;
-			gdb_connection->ctrl_c = 0;
 		} else
 			signal_var = gdb_last_signal(target);
 
@@ -769,11 +771,14 @@ static void gdb_signal_reply(struct target *target, struct connection *connectio
 					target->rtos->current_thread);
 			target->rtos->current_threadid = target->rtos->current_thread;
 			target->rtos->gdb_target_for_threadid(connection, target->rtos->current_threadid, &ct);
-			signal_var = gdb_last_signal(ct);
+			if (!gdb_connection->ctrl_c)
+				signal_var = gdb_last_signal(ct);
 		}
 
 		sig_reply_len = snprintf(sig_reply, sizeof(sig_reply), "T%2.2x%s%s",
 				signal_var, stop_reason, current_thread);
+
+		gdb_connection->ctrl_c = 0;
 	}
 
 	gdb_put_packet(connection, sig_reply, sig_reply_len);
@@ -788,64 +793,64 @@ static void gdb_fileio_reply(struct target *target, struct connection *connectio
 	bool program_exited = false;
 
 	if (strcmp(target->fileio_info->identifier, "open") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 "/%" PRIx32 ",%" PRIx32 ",%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 "/%" PRIx64 ",%" PRIx64 ",%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2,
 				target->fileio_info->param_3,
 				target->fileio_info->param_4);
 	else if (strcmp(target->fileio_info->identifier, "close") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1);
 	else if (strcmp(target->fileio_info->identifier, "read") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 ",%" PRIx32 ",%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 ",%" PRIx64 ",%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2,
 				target->fileio_info->param_3);
 	else if (strcmp(target->fileio_info->identifier, "write") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 ",%" PRIx32 ",%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 ",%" PRIx64 ",%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2,
 				target->fileio_info->param_3);
 	else if (strcmp(target->fileio_info->identifier, "lseek") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 ",%" PRIx32 ",%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 ",%" PRIx64 ",%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2,
 				target->fileio_info->param_3);
 	else if (strcmp(target->fileio_info->identifier, "rename") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 "/%" PRIx32 ",%" PRIx32 "/%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 "/%" PRIx64 ",%" PRIx64 "/%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2,
 				target->fileio_info->param_3,
 				target->fileio_info->param_4);
 	else if (strcmp(target->fileio_info->identifier, "unlink") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 "/%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 "/%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2);
 	else if (strcmp(target->fileio_info->identifier, "stat") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 "/%" PRIx32 ",%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 "/%" PRIx64 ",%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2,
 				target->fileio_info->param_3);
 	else if (strcmp(target->fileio_info->identifier, "fstat") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 ",%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 ",%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2);
 	else if (strcmp(target->fileio_info->identifier, "gettimeofday") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 ",%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 ",%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2);
 	else if (strcmp(target->fileio_info->identifier, "isatty") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1);
 	else if (strcmp(target->fileio_info->identifier, "system") == 0)
-		sprintf(fileio_command, "F%s,%" PRIx32 "/%" PRIx32, target->fileio_info->identifier,
+		sprintf(fileio_command, "F%s,%" PRIx64 "/%" PRIx64, target->fileio_info->identifier,
 				target->fileio_info->param_1,
 				target->fileio_info->param_2);
 	else if (strcmp(target->fileio_info->identifier, "exit") == 0) {
 		/* If target hits exit syscall, report to GDB the program is terminated.
 		 * In addition, let target run its own exit syscall handler. */
 		program_exited = true;
-		sprintf(fileio_command, "W%02" PRIx32, target->fileio_info->param_1);
+		sprintf(fileio_command, "W%02" PRIx64, target->fileio_info->param_1);
 	} else {
 		LOG_DEBUG("Unknown syscall: %s", target->fileio_info->identifier);
 
@@ -1185,8 +1190,15 @@ static int gdb_get_registers_packet(struct connection *connection,
 	reg_packet_p = reg_packet;
 
 	for (i = 0; i < reg_list_size; i++) {
-		if (!reg_list[i]->valid)
-			reg_list[i]->type->get(reg_list[i]);
+		if (!reg_list[i]->valid) {
+			retval = reg_list[i]->type->get(reg_list[i]);
+			if (retval != ERROR_OK && gdb_report_register_access_error) {
+				LOG_DEBUG("Couldn't get register %s.", reg_list[i]->name);
+				free(reg_packet);
+				free(reg_list);
+				return gdb_error(connection, retval);
+			}
+		}
 		gdb_str_to_target(target, reg_packet_p, reg_list[i]);
 		reg_packet_p += DIV_ROUND_UP(reg_list[i]->size, 8) * 2;
 	}
@@ -1247,7 +1259,13 @@ static int gdb_set_registers_packet(struct connection *connection,
 		bin_buf = malloc(DIV_ROUND_UP(reg_list[i]->size, 8));
 		gdb_target_to_reg(target, packet_p, chars, bin_buf);
 
-		reg_list[i]->type->set(reg_list[i], bin_buf);
+		retval = reg_list[i]->type->set(reg_list[i], bin_buf);
+		if (retval != ERROR_OK && gdb_report_register_access_error) {
+			LOG_DEBUG("Couldn't set register %s.", reg_list[i]->name);
+			free(reg_list);
+			free(bin_buf);
+			return gdb_error(connection, retval);
+		}
 
 		/* advance packet pointer */
 		packet_p += chars;
@@ -1287,8 +1305,14 @@ static int gdb_get_register_packet(struct connection *connection,
 		return ERROR_SERVER_REMOTE_CLOSED;
 	}
 
-	if (!reg_list[reg_num]->valid)
-		reg_list[reg_num]->type->get(reg_list[reg_num]);
+	if (!reg_list[reg_num]->valid) {
+		retval = reg_list[reg_num]->type->get(reg_list[reg_num]);
+		if (retval != ERROR_OK && gdb_report_register_access_error) {
+			LOG_DEBUG("Couldn't get register %s.", reg_list[reg_num]->name);
+			free(reg_list);
+			return gdb_error(connection, retval);
+		}
+	}
 
 	reg_packet = malloc(DIV_ROUND_UP(reg_list[reg_num]->size, 8) * 2 + 1); /* plus one for string termination null */
 
@@ -1342,7 +1366,13 @@ static int gdb_set_register_packet(struct connection *connection,
 
 	gdb_target_to_reg(target, separator + 1, chars, bin_buf);
 
-	reg_list[reg_num]->type->set(reg_list[reg_num], bin_buf);
+	retval = reg_list[reg_num]->type->set(reg_list[reg_num], bin_buf);
+	if (retval != ERROR_OK && gdb_report_register_access_error) {
+		LOG_DEBUG("Couldn't set register %s.", reg_list[reg_num]->name);
+		free(bin_buf);
+		free(reg_list);
+		return gdb_error(connection, retval);
+	}
 
 	gdb_put_packet(connection, "OK", 2);
 
@@ -1778,7 +1808,7 @@ static int gdb_memory_map(struct connection *connection,
 	int offset;
 	int length;
 	char *separator;
-	uint32_t ram_start = 0;
+	target_addr_t ram_start = 0;
 	int i;
 	int target_flash_banks = 0;
 
@@ -1793,9 +1823,6 @@ static int gdb_memory_map(struct connection *connection,
 	/* Sort banks in ascending order.  We need to report non-flash
 	 * memory as ram (or rather read/write) by default for GDB, since
 	 * it has no concept of non-cacheable read/write memory (i/o etc).
-	 *
-	 * FIXME Most non-flash addresses are *NOT* RAM!  Don't lie.
-	 * Current versions of GDB assume unlisted addresses are RAM...
 	 */
 	banks = malloc(sizeof(struct flash_bank *)*flash_get_bank_count());
 
@@ -1818,14 +1845,13 @@ static int gdb_memory_map(struct connection *connection,
 	for (i = 0; i < target_flash_banks; i++) {
 		int j;
 		unsigned sector_size = 0;
-		uint32_t start;
+		unsigned group_len = 0;
 
 		p = banks[i];
-		start = p->base;
 
 		if (ram_start < p->base)
 			xml_printf(&retval, &xml, &pos, &size,
-				"<memory type=\"ram\" start=\"0x%x\" "
+				"<memory type=\"ram\" start=\"" TARGET_ADDR_FMT "\" "
 				"length=\"0x%x\"/>\n",
 				ram_start, p->base - ram_start);
 
@@ -1836,27 +1862,35 @@ static int gdb_memory_map(struct connection *connection,
 		 * regions with 8KB, 32KB, and 64KB sectors; etc.
 		 */
 		for (j = 0; j < p->num_sectors; j++) {
-			unsigned group_len;
 
 			/* Maybe start a new group of sectors. */
 			if (sector_size == 0) {
+				if (p->sectors[j].offset + p->sectors[j].size > p->size) {
+					LOG_WARNING("The flash sector at offset 0x%08" PRIx32
+						" overflows the end of %s bank.",
+						p->sectors[j].offset, p->name);
+					LOG_WARNING("The rest of bank will not show in gdb memory map.");
+					break;
+				}
+				target_addr_t start;
 				start = p->base + p->sectors[j].offset;
 				xml_printf(&retval, &xml, &pos, &size,
 					"<memory type=\"flash\" "
-					"start=\"0x%x\" ",
+					"start=\"" TARGET_ADDR_FMT "\" ",
 					start);
 				sector_size = p->sectors[j].size;
+				group_len = sector_size;
+			} else {
+				group_len += sector_size; /* equal to p->sectors[j].size */
 			}
 
 			/* Does this finish a group of sectors?
 			 * If not, continue an already-started group.
 			 */
-			if (j == p->num_sectors - 1)
-				group_len = (p->base + p->size) - start;
-			else if (p->sectors[j + 1].size != sector_size)
-				group_len = p->base + p->sectors[j + 1].offset
-					- start;
-			else
+			if (j < p->num_sectors - 1
+					&& p->sectors[j + 1].size == sector_size
+					&& p->sectors[j + 1].offset == p->sectors[j].offset + sector_size
+					&& p->sectors[j + 1].offset + p->sectors[j + 1].size <= p->size)
 				continue;
 
 			xml_printf(&retval, &xml, &pos, &size,
@@ -1874,7 +1908,7 @@ static int gdb_memory_map(struct connection *connection,
 
 	if (ram_start != 0)
 		xml_printf(&retval, &xml, &pos, &size,
-			"<memory type=\"ram\" start=\"0x%x\" "
+			"<memory type=\"ram\" start=\"" TARGET_ADDR_FMT "\" "
 			"length=\"0x%x\"/>\n",
 			ram_start, 0-ram_start);
 	/* ELSE a flash chip could be at the very end of the 32 bit address
@@ -1882,11 +1916,11 @@ static int gdb_memory_map(struct connection *connection,
 	 */
 
 	free(banks);
-	banks = NULL;
 
 	xml_printf(&retval, &xml, &pos, &size, "</memory-map>\n");
 
 	if (retval != ERROR_OK) {
+		free(xml);
 		gdb_error(connection, retval);
 		return retval;
 	}
@@ -1907,6 +1941,8 @@ static int gdb_memory_map(struct connection *connection,
 static const char *gdb_get_reg_type_name(enum reg_type type)
 {
 	switch (type) {
+		case REG_TYPE_BOOL:
+			return "bool";
 		case REG_TYPE_INT:
 			return "int";
 		case REG_TYPE_INT8:
@@ -1919,6 +1955,8 @@ static const char *gdb_get_reg_type_name(enum reg_type type)
 			return "int64";
 		case REG_TYPE_INT128:
 			return "int128";
+		case REG_TYPE_UINT:
+			return "uint";
 		case REG_TYPE_UINT8:
 			return "uint8";
 		case REG_TYPE_UINT16:
@@ -2038,9 +2076,9 @@ static int gdb_generate_reg_type_description(struct target *target,
 					type->id, type->reg_type_struct->size);
 			while (field != NULL) {
 				xml_printf(&retval, tdesc, pos, size,
-						"<field name=\"%s\" start=\"%d\" end=\"%d\"/>\n",
-						field->name, field->bitfield->start,
-						field->bitfield->end);
+						"<field name=\"%s\" start=\"%d\" end=\"%d\" type=\"%s\" />\n",
+						field->name, field->bitfield->start, field->bitfield->end,
+						gdb_get_reg_type_name(field->bitfield->type));
 
 				field = field->next;
 			}
@@ -2086,8 +2124,9 @@ static int gdb_generate_reg_type_description(struct target *target,
 		field = type->reg_type_flags->fields;
 		while (field != NULL) {
 			xml_printf(&retval, tdesc, pos, size,
-					"<field name=\"%s\" start=\"%d\" end=\"%d\"/>\n",
-					field->name, field->bitfield->start, field->bitfield->end);
+					"<field name=\"%s\" start=\"%d\" end=\"%d\" type=\"%s\" />\n",
+					field->name, field->bitfield->start, field->bitfield->end,
+					gdb_get_reg_type_name(field->bitfield->type));
 
 			field = field->next;
 		}
@@ -2442,7 +2481,11 @@ static int gdb_get_thread_list_chunk(struct target *target, char **thread_list,
 	else
 		transfer_type = 'l';
 
-	*chunk = malloc(length + 2);
+	*chunk = malloc(length + 2 + 3);
+    /* Allocating extra 3 bytes prevents false positive valgrind report
+	 * of strlen(chunk) word access:
+	 * Invalid read of size 4
+	 * Address 0x4479934 is 44 bytes inside a block of size 45 alloc'd */
 	if (*chunk == NULL) {
 		LOG_ERROR("Unable to allocate memory");
 		return ERROR_FAIL;
@@ -2689,6 +2732,8 @@ static bool gdb_handle_vcont_packet(struct connection *connection, const char *p
 
 	/* single-step or step-over-breakpoint */
 	if (parse[0] == 's') {
+		bool fake_step = false;
+
 		if (strncmp(parse, "s:", 2) == 0) {
 			struct target *ct = target;
 			int current_pc = 1;
@@ -2704,8 +2749,19 @@ static bool gdb_handle_vcont_packet(struct connection *connection, const char *p
 				parse = endp;
 			}
 
-			if (target->rtos != NULL)
+			if (target->rtos != NULL) {
+				/* FIXME: why is this necessary? rtos state should be up-to-date here already! */
+				rtos_update_threads(target);
+
 				target->rtos->gdb_target_for_threadid(connection, thread_id, &ct);
+
+				/*
+				 * check if the thread to be stepped is the current rtos thread
+				 * if not, we must fake the step
+				 */
+				if (target->rtos->current_thread != thread_id)
+					fake_step = true;
+			}
 
 			if (parse[0] == ';') {
 				++parse;
@@ -2740,9 +2796,32 @@ static bool gdb_handle_vcont_packet(struct connection *connection, const char *p
 				}
 			}
 
-			LOG_DEBUG("target %s single-step thread %"PRId64, target_name(ct), thread_id);
+			LOG_DEBUG("target %s single-step thread %"PRIx64, target_name(ct), thread_id);
 			log_add_callback(gdb_log_callback, connection);
 			target_call_event_callbacks(ct, TARGET_EVENT_GDB_START);
+
+			/*
+			 * work around an annoying gdb behaviour: when the current thread
+			 * is changed in gdb, it assumes that the target can follow and also
+			 * make the thread current. This is an assumption that cannot hold
+			 * for a real target running a multi-threading OS. We just fake
+			 * the step to not trigger an internal error in gdb. See
+			 * https://sourceware.org/bugzilla/show_bug.cgi?id=22925 for details
+			 */
+			if (fake_step) {
+				int sig_reply_len;
+				char sig_reply[128];
+
+				LOG_DEBUG("fake step thread %"PRIx64, thread_id);
+
+				sig_reply_len = snprintf(sig_reply, sizeof(sig_reply),
+										 "T05thread:%016"PRIx64";", thread_id);
+
+				gdb_put_packet(connection, sig_reply, sig_reply_len);
+				log_remove_callback(gdb_log_callback, connection);
+
+				return true;
+			}
 
 			/* support for gdb_sync command */
 			if (gdb_connection->sync) {
@@ -3421,6 +3500,15 @@ COMMAND_HANDLER(handle_gdb_report_data_abort_command)
 	return ERROR_OK;
 }
 
+COMMAND_HANDLER(handle_gdb_report_register_access_error)
+{
+	if (CMD_ARGC != 1)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	COMMAND_PARSE_ENABLE(CMD_ARGV[0], gdb_report_register_access_error);
+	return ERROR_OK;
+}
+
 /* gdb_breakpoint_override */
 COMMAND_HANDLER(handle_gdb_breakpoint_override_command)
 {
@@ -3543,6 +3631,13 @@ static const struct command_registration gdb_command_handlers[] = {
 		.usage = "('enable'|'disable')"
 	},
 	{
+		.name = "gdb_report_register_access_error",
+		.handler = handle_gdb_report_register_access_error,
+		.mode = COMMAND_CONFIG,
+		.help = "enable or disable reporting register access errors",
+		.usage = "('enable'|'disable')"
+	},
+	{
 		.name = "gdb_breakpoint_override",
 		.handler = handle_gdb_breakpoint_override_command,
 		.mode = COMMAND_ANY,
@@ -3571,4 +3666,10 @@ int gdb_register_commands(struct command_context *cmd_ctx)
 	gdb_port = strdup("3333");
 	gdb_port_next = strdup("3333");
 	return register_commands(cmd_ctx, NULL, gdb_command_handlers);
+}
+
+void gdb_service_free(void)
+{
+	free(gdb_port);
+	free(gdb_port_next);
 }

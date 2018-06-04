@@ -1880,6 +1880,10 @@ struct flash_driver ambiqmicro_flash = {
 	.auto_probe = ambiqmicro_probe,
 	.erase_check = default_flash_blank_check,
 	.info = get_ambiqmicro_info,
+<<<<<<< HEAD
 	.protect_check = ambiqmicro_protect_check,
 	.protect = ambiqmicro_protect,
+=======
+	.free_driver_priv = default_flash_free_driver_priv,
+>>>>>>> master-ocdecm
 };
