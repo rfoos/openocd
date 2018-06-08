@@ -122,12 +122,16 @@ typedef void (*BootROM_FlashWSHelper_T)(uint32_t);
 typedef uint32_t (*BootROM_ui32LoadHelper_T)(uint32_t);
 typedef void (*BootROM_ui32StoreHelper_T)(uint32_t,
 	uint32_t);
+typedef uint32_t (*BootROM_ui32VersionHelper_T)(void);
+/* #### INTERNAL BEGIN #### */
 typedef void (*BootROM_flash_ref_cell_erase_T)(uint32_t, uint32_t, uint32_t,
 	uint32_t);
+/* #### INTERNAL END #### */
 
 typedef void (*BootROM_flash_erase_T)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 typedef void (*BootROM_flash_program_T)(uint32_t, uint32_t *, uint32_t, uint32_t, uint32_t,
 	uint32_t, uint32_t, uint32_t);
+typedef uint32_t (*BootROM_flash_read_T)(uint32_t, uint32_t , uint32_t *);
 
 /** SRAM parameters for write. */
 typedef struct {

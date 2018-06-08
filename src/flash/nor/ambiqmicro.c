@@ -1882,4 +1882,5 @@ struct flash_driver ambiqmicro_flash = {
 	.info = get_ambiqmicro_info,
 	.protect_check = ambiqmicro_protect_check,
 	.protect = ambiqmicro_protect,
+	.free_driver_priv = default_flash_free_driver_priv,
 };
