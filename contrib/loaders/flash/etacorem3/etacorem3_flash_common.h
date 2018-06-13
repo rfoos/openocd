@@ -140,7 +140,7 @@ typedef struct {
 	uint32_t sram_buffer;
 	uint32_t options;	/**< 1 - Write 512 bytes at a time. */
 	uint32_t bootrom_entry_point;
-	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta. */
+	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta, 3-3501 fpga. */
 	uint32_t retval;
 } eta_write_interface;
 

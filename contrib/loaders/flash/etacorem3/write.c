@@ -80,8 +80,9 @@ int main(void)
 	/* Allow a default SRAM buffer. */
 	if (sram_buffer == NULL)
 		sram_buffer = (uint32_t *) SRAM_BUFFER_START;
-    /* fpga, silicon different behavior. */
+    /* ecm3501 fpga, silicon or different behavior. */
 	uint32_t bootrom_version = flash_interface->bootrom_version;
+	/* For now we want ecm3501 chip behavior for future versions. */
 
 	/* Breakpoint is -2, if something goes wrong in call. */
     /* Don't use negative number returns, set retval as progress. */

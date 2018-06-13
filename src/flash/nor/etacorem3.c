@@ -151,14 +151,14 @@ static const uint32_t magic_numbers[] = {
 /**
  *  Bootrom Branch Table Offsets
  */
-#define BRANCHTABLE_FLASH_WS            (00)
-#define BRANCHTABLE_FLASH_LOAD          (04)
-#define BRANCHTABLE_FLASH_STORE         (08)
-#define BRANCHTABLE_FLASH_VERSION       (12)
-#define BRANCHTABLE_FLASH_ERASE_REF     (16)
-#define BRANCHTABLE_FLASH_ERASE         (20)
-#define BRANCHTABLE_FLASH_PROGRAM       (24)
-#define BRANCHTABLE_FLASH_READ          (28)
+#define BRANCHTABLE_FLASH_WS            (00) /* 0x98 */
+#define BRANCHTABLE_FLASH_LOAD          (04) /* 0x9C */
+#define BRANCHTABLE_FLASH_STORE         (08) /* 0xA0 */
+#define BRANCHTABLE_FLASH_VERSION       (12) /* 0xA4 */
+#define BRANCHTABLE_FLASH_ERASE_REF     (16) /* 0xA8 */
+#define BRANCHTABLE_FLASH_ERASE         (20) /* 0xAC */
+#define BRANCHTABLE_FLASH_PROGRAM       (24) /* 0xB0 */
+#define BRANCHTABLE_FLASH_READ          (28) /* 0xB4 */
 
 /**
  *  Bootrom branch table key.
@@ -288,7 +288,8 @@ int find_branch_table(struct flash_bank *bank, uint32_t *version)
 		}
 	}
 	if (retval == ERROR_OK)
-		etacorem3_bank->branchtable_start = romptr;
+		/* offset around keys and version is 0x10 */
+		etacorem3_bank->branchtable_start = romptr + 0x10;
 	else
 		etacorem3_bank->branchtable_start = 0;
 	return retval;
@@ -583,14 +584,20 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 	/*
 	 * Load SRAM Parameters.
 	 */
+	/* For now we want ecm3501 chip behavior for future versions. */
+	if (etacorem3_bank->bootrom_version > 1)
+		etacorem3_bank->bootrom_version = 0;
 	eta_erase_interface sramargs = {
 		etacorem3_bank->flash_base,	/**< Start of flash. */
 		0x00000000,	/**< Length 0 for all. */
 		0x00000001,	/**< Option 1, mass erase. */
 		etacorem3_bank->bootrom_erase_entry,	/**< bootrom entry point. */
-		etacorem3_bank->bootrom_version,/**< chip, fpga, m3eta */
+		etacorem3_bank->bootrom_version, /**< ecm3501 chip, ecm3501 fpga, m3eta, ecm3531 */
 		BREAKPOINT	/**< Return code from bootrom. */
 	};
+	/* For now we want ecm3501 chip behavior for future versions. */
+	if (etacorem3_bank->bootrom_version > 1)
+		etacorem3_bank->bootrom_version = 0;
 
 	/* Common erase execution code. */
 	retval = common_erase_run(bank,
@@ -648,12 +655,15 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 	/*
 	 * Load SRAM Parameters.
 	 */
+	/* For now we want ecm3501 chip behavior for future versions. */
+	if (etacorem3_bank->bootrom_version > 1)
+		etacorem3_bank->bootrom_version = 0;
 	eta_erase_interface sramargs = {
 		etacorem3_bank->flash_base + (first * etacorem3_bank->pagesize),
 		(last - first + 1) * etacorem3_bank->pagesize,	/**< Length in bytes. */
 		0x00000000,	/**< Request page erase. */
 		etacorem3_bank->bootrom_erase_entry,	/**< bootrom entry point. */
-		etacorem3_bank->bootrom_version,/**< chip or fpga */
+		etacorem3_bank->bootrom_version, /**< chip fpga or ecm3531*/
 		BREAKPOINT	/**< Return code from bootrom. */
 	};
 
@@ -799,6 +809,9 @@ static int etacorem3_write(struct flash_bank *bank,
 		/*
 		 * Load SRAM Parameters.
 		 */
+		/* For now we want ecm3501 chip behavior for future versions. */
+		if (etacorem3_bank->bootrom_version > 1)
+			etacorem3_bank->bootrom_version = 0;
 		eta_write_interface sramargs = {
 			address,	/**< Start address in flash. */
 			thisrun_count,	/**< Length in bytes. */

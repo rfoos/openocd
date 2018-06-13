@@ -82,7 +82,7 @@ int main(void)
 	uint32_t flash_length = flash_interface->flash_length;
 	uint32_t flash_address_max = flash_address + flash_length;
 	uint32_t bootrom_version = flash_interface->bootrom_version;
-
+	/* ecm3531 same as ecm3501 chip. */
 	if (flash_address <  ETA_COMMON_FLASH_BASE) {
 		flash_interface->retval = 1;
 		goto parameter_error;
