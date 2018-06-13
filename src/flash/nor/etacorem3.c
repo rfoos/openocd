@@ -167,7 +167,7 @@ static const uint32_t magic_numbers[] = {
  *  First table entry 0x00001fb4.
  */
 static const uint32_t branchtable_key[] = {
-	0x43415445,	/**< First 4 bytes of "ETACOMPUTE" */
+	0x43415445,	/**< 3 Word "ETACOMPUTE" zero terminated string. */
 	0x55504d4f,
 	0x00004554,
 };
@@ -278,22 +278,25 @@ int find_branch_table(struct flash_bank *bank, uint32_t *version)
 		/* Search single 32 bit words. */
 		retval = target_read_u32(bank->target, romptr, &romval);
 		if ((retval == ERROR_OK) && (romval == branchtable_key[0])) {
-			uint32_t bkeyver[3] = {0,};
-			retval = target_read_u32_array(bank->target, romptr+4, 3, &bkeyver[0]);
-			if ((retval == ERROR_OK) && (bkeyver[0] == branchtable_key[1]) && \
-				(bkeyver[1] == branchtable_key[2])) {
-				*version = bkeyver[2];
+			/** @todo change to struct to avoid flogging. */
+			uint32_t startup_head[6];
+#if 0
+				0x43415445,		/**< string  "ETACOMPUTE" zero terminated. */
+				0x55504d4f,
+				0x00004554,
+				0x00000000,		/**< 1 byte revsion, 3 byte part number. */
+				0x00000000,		/**< ptr to branch table. */
+				0x00000000		/**< on an FPGA this is non zero build date of bit file. */
+#endif
+			retval = target_read_u32_array(bank->target, romptr, 6, &startup_head[0]);
+			if ((retval == ERROR_OK) && (startup_head[1] == branchtable_key[1]) && \
+				(startup_head[2] == branchtable_key[2])) {
+				*version = startup_head[3];
+				etacorem3_bank->branchtable_start = startup_head[4];
 				break;
 			}
 		}
 	}
-	/* offset around keys and version is 0x10 */
-	if (retval == ERROR_OK)
-		retval = target_read_u32(bank->target, (romptr + 0x10),
-					&etacorem3_bank->branchtable_start);
-	/* key search, and key reference errors. */
-	if (retval != ERROR_OK)
-		etacorem3_bank->branchtable_start = 0;
 	return retval;
 }
 
