@@ -287,10 +287,12 @@ int find_branch_table(struct flash_bank *bank, uint32_t *version)
 			}
 		}
 	}
+	/* offset around keys and version is 0x10 */
 	if (retval == ERROR_OK)
-		/* offset around keys and version is 0x10 */
-		etacorem3_bank->branchtable_start = romptr + 0x10;
-	else
+		retval = target_read_u32(bank->target, (romptr + 0x10),
+					&etacorem3_bank->branchtable_start);
+	/* key search, and key reference errors. */
+	if (retval != ERROR_OK)
 		etacorem3_bank->branchtable_start = 0;
 	return retval;
 }
@@ -998,10 +1000,16 @@ static int etacorem3_probe(struct flash_bank *bank)
 		 * ECM3531 */
 	} else if (etacorem3_bank->bootrom_version == branchtable_version[0]) {
 		etacorem3_bank->target_name = "ECM3531";
-		etacorem3_bank->bootrom_erase_entry = etacorem3_bank->branchtable_start +
-			BRANCHTABLE_FLASH_ERASE;
-		etacorem3_bank->bootrom_write_entry = etacorem3_bank->branchtable_start +
-			BRANCHTABLE_FLASH_PROGRAM;
+		if (etacorem3_bank->branchtable_start != 0) {
+			int retval = ERROR_OK;
+			retval = target_read_u32(bank->target,
+						etacorem3_bank->branchtable_start + BRANCHTABLE_FLASH_ERASE,
+						&etacorem3_bank->bootrom_erase_entry);
+			retval += target_read_u32(bank->target,
+						etacorem3_bank->branchtable_start + BRANCHTABLE_FLASH_PROGRAM,
+						&etacorem3_bank->bootrom_write_entry);
+			LOG_DEBUG("btable retvals: %d", retval);
+		}
 		etacorem3_bank->timeout_erase = TIMEOUT_ERASE_ECM3501;
 		etacorem3_bank->timeout_program = TIMEOUT_PROGRAM_ECM3501;
 		etacorem3_bank->time_per_page_erase = TIME_PER_PAGE_ERASE_ECM3501;
