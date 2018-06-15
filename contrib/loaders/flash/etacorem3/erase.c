@@ -30,16 +30,11 @@
 
 #include <string.h>
 #include <stdint.h>
-
-#if OCD
 #include "etacorem3_flash_common.h"
-#else
-#include "eta_chip.h"
-#include "etacorem3_flash_common.h"
-#endif
 
-/** Flash helper function for erase. */
+/** Flash helper functions for erase. */
 BootROM_flash_erase_T BootROM_flash_erase;
+BootROM_flash_erase_space_T BootROM_flash_erase_space;
 #ifndef OCD
 SET_MAGIC_NUMBERS;
 #endif
@@ -82,12 +77,12 @@ int main(void)
 	uint32_t flash_length = flash_interface->flash_length;
 	uint32_t flash_address_max = flash_address + flash_length;
 	uint32_t bootrom_version = flash_interface->bootrom_version;
-	/* ecm3531 same as ecm3501 chip. */
+	/* ecm3531 same size as ecm3501 chip. */
 	if (flash_address <  ETA_COMMON_FLASH_BASE) {
 		flash_interface->retval = 1;
 		goto parameter_error;
 	}
-	/* Breakpoint is -2, use different numbers. */
+	/* Breakpoint is -2, use different retval numbers. */
 	if (flash_address >= ETA_COMMON_FLASH_MAX) {
 		flash_interface->retval = 2;
 		goto parameter_error;
@@ -101,6 +96,8 @@ int main(void)
 	if (flash_interface->bootrom_entry_point) {
 		BootROM_flash_erase = \
 			(BootROM_flash_erase_T) flash_interface->bootrom_entry_point;
+		BootROM_flash_erase_space = \
+			(BootROM_flash_erase_space_T) flash_interface->bootrom_entry_point;
 	} else {
 		flash_interface->retval = 4;
 		goto parameter_error;

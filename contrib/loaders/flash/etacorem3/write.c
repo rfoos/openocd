@@ -30,16 +30,11 @@
 
 #include <string.h>
 #include <stdint.h>
-
-#if OCD
 #include "etacorem3_flash_common.h"
-#else
-#include "eta_chip.h"
-#include "etacorem3_flash_common.h"
-#endif
 
 /** Flash helper function for write. */
 BootROM_flash_program_T BootROM_flash_program;
+BootROM_flash_program_space_T BootROM_flash_program_space;
 #ifndef OCD
 SET_MAGIC_NUMBERS;
 #endif
@@ -80,29 +75,27 @@ int main(void)
 	/* Allow a default SRAM buffer. */
 	if (sram_buffer == NULL)
 		sram_buffer = (uint32_t *) SRAM_BUFFER_START;
-    /* ecm3501 fpga, silicon or different behavior. */
+	/* ecm3501 fpga, silicon or ECM3531. */
 	uint32_t bootrom_version = flash_interface->bootrom_version;
-	/* For now we want ecm3501 chip behavior for future versions. */
 
-	/* Breakpoint is -2, if something goes wrong in call. */
-    /* Don't use negative number returns, set retval as progress. */
+	/* Breakpoint is -2, if something goes wrong in call.
+	 * Don't use negative number returns, set retval as progress. */
 
-    /* Invalid length not caught elsewhere. */
+	/* Invalid length not caught elsewhere. */
 	if (flash_length == 0) {
 		flash_interface->retval = 0;
 		goto parameter_error;
 	}
 
-    /* Before flash starts. */
+	/* Before flash starts. */
 	if (flash_address < ETA_COMMON_FLASH_BASE) {
 		flash_interface->retval = 1;
 		goto parameter_error;
 	}
 
-    /* After flash ends. */
+	/* After flash ends. */
 	if ((flash_address >= ETA_COMMON_FLASH_MAX) && \
-        (flash_address_max > ETA_COMMON_FLASH_MAX))
-    {
+		(flash_address_max > ETA_COMMON_FLASH_MAX)) {
 		flash_interface->retval = 2;
 		goto parameter_error;
 	}
@@ -111,18 +104,33 @@ int main(void)
 	if (flash_interface->bootrom_entry_point) {
 		BootROM_flash_program = \
 			(BootROM_flash_program_T) flash_interface->bootrom_entry_point;
+		BootROM_flash_program_space = \
+			(BootROM_flash_program_space_T) flash_interface->bootrom_entry_point;
 	} else {
 		flash_interface->retval = 4;
 		goto parameter_error;
 	}
 
-	/* Board and FPGA BootrROMs use 64 bit counts for length. */
+	/* 3531 counts are words, normal and info space. */
+	if (bootrom_version == BOOTROM_VERSION_ECM3531) {
+		uint32_t count = (flash_length>>2) + ((flash_length % 16) ? 1 : 0);
+		flash_interface->retval = 6;
+		/* Break or Faults don't return here so set retval before/after. */
+		flash_interface->retval = \
+			ETA_CSP_FLASH_PROGRAM_SPACE(flash_address,
+				sram_buffer,
+				count,
+				BOOTROM_FLASH_SPACE_NORMAL);
+		goto return_code;
+	}
+	/** @assume BOOTROM_VERSION_ECM3531 or BOOTROM_VERSION_ECM3531_FPGA
+	 * 3501 Board and FPGA BootROMs use 64 bit counts for length. */
 	uint32_t count = (flash_length >> 3);
 
 	if (flash_interface->options == 1) {
-        /* DWord count. */
+		/* DWord count. */
 		const uint32_t block_size = 64;
-        /* Bytes to increment Flash Address. */
+		/* Bytes to increment Flash Address. */
 		const uint32_t increment_size = 512;
 
 		/*
@@ -140,35 +148,40 @@ int main(void)
 			if ((num_extra != 0) && \
 				(I == (num_block - 1))) {
 				flash_interface->retval = 5;
-                /* The last 32 bits of buffer ending in a 52 byte string don't work. */
-                if ((flash_length%52) == 0) {
-                    /* Last 32 bits are not addressable */
-                    int i=4;
-                    /* Extend buffer 4 bytes. */
-                    char *adr=(char *)(tmp_adr+52);
-                    char *src=(char *)(tmp_src+52);
-                    /* Put flash copy at new end of buffer. */
-                    while (i--)
-                        *src++ = *adr++;
-                    /* write 4 more bytes, in 64 bit address. */
-                    num_extra++;
-                }
+				/* The last 32 bits of buffer ending in a 52 byte string don't work.
+				 * */
+				if ((flash_length%52) == 0) {
+					/* Last 32 bits are not addressable */
+					int i = 4;
+					/* Extend buffer 4 bytes. */
+					char *adr = (char *)(tmp_adr+52);
+					char *src = (char *)(tmp_src+52);
+					/* Put flash copy at new end of buffer. */
+					while (i--)
+						*src++ = *adr++;
+					/* write 4 more bytes, in 64 bit address. */
+					num_extra++;
+				}
 				ETA_CSP_FLASH_PROGRAM(tmp_adr, (uint32_t *) tmp_src,
-					((bootrom_version == 0) ? num_extra * 2 : num_extra));
+					((bootrom_version ==
+					BOOTROM_VERSION_ECM3501) ? num_extra * 2 : num_extra));
 			} else {
 				flash_interface->retval = 6;
-				ETA_CSP_FLASH_PROGRAM(tmp_adr, (uint32_t *) tmp_src,
-					((bootrom_version == 0) ? block_size * 2 : block_size));
+				/* Break or Faults don't return here so set retval before/after. */
+				flash_interface->retval = \
+					ETA_CSP_FLASH_PROGRAM(tmp_adr, (uint32_t *) tmp_src,
+						((bootrom_version ==
+						BOOTROM_VERSION_ECM3531) ? block_size *
+						2 : block_size));
 			}
 			tmp_adr += increment_size;	/* Always bytes. */
 			tmp_src += 128;	/* Address Increment. */
 		}
 	} else
-		ETA_CSP_FLASH_PROGRAM(flash_address, sram_buffer, count);
+		flash_interface->retval = \
+			ETA_CSP_FLASH_PROGRAM(flash_address, sram_buffer, count);
 
-	/* Can't get an RC from bootrom, guess it worked. */
-	flash_interface->retval = 0;
-
+return_code:
 parameter_error:
 #if OCD
 	asm ("    BKPT      #0");
