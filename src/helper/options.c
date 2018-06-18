@@ -230,6 +230,13 @@ static void add_default_dirs(void)
 		free(path);
 	}
 
+    /* developer convenience when running out of source tree. */
+	path = alloc_printf("%s/%s/%s", exepath, "..", "tcl");
+	if (path) {
+		add_script_search_dir(path);
+		free(path);
+	}
+
 	free(exepath);
 	free(bin2data);
 }
