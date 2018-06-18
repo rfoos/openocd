@@ -365,9 +365,8 @@ static bool usb_connect(void)
 		xds110.ctx = ctx;
 		xds110.dev = dev;
 
-		/* Set libusb to auto detach kernel and disable debug messages */
+		/* Set libusb to auto detach kernel */
 		(void)libusb_set_auto_detach_kernel_driver(dev, 1);
-		libusb_set_debug(ctx, LIBUSB_LOG_LEVEL_NONE);
 
 		/* Claim the debug interface on the XDS110 */
 		result = libusb_claim_interface(dev, INTERFACE_DEBUG);

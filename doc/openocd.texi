@@ -5575,7 +5575,32 @@ flash erase_sector 0 0 127 # It will perform a mass erase on BlueNRG-2
 @end example
 
 Triggering a mass erase is also useful when users want to disable readout protection.
+@end deffn
 
+@deffn {Flash Driver} cc26xx
+All versions of the SimpleLink CC13xx and CC26xx microcontrollers from Texas
+Instruments include internal flash. The cc26xx flash driver supports both the
+CC13xx and CC26xx family of devices. The driver automatically recognizes the
+specific version's flash parameters and autoconfigures itself. Flash bank 0
+starts at address 0.
+
+@example
+flash bank $_FLASHNAME cc26xx 0 0 0 0 $_TARGETNAME
+@end example
+@end deffn
+
+@deffn {Flash Driver} cc3220sf
+The CC3220SF version of the SimpleLink CC32xx microcontrollers from Texas
+Instruments includes 1MB of internal flash. The cc3220sf flash driver only
+supports the internal flash. The serial flash on SimpleLink boards is
+programmed via the bootloader over a UART connection. Security features of
+the CC3220SF may erase the internal flash during power on reset. Refer to
+documentation at @url{www.ti.com/cc3220sf} for details on security features
+and programming the serial flash.
+
+@example
+flash bank $_FLASHNAME cc3220sf 0 0 0 0 $_TARGETNAME
+@end example
 @end deffn
 
 @deffn {Flash Driver} efm32
@@ -6157,6 +6182,68 @@ Erases the contents of the flash memory, protection and security lock.
 
 The @var{num} parameter is a value shown by @command{flash banks}.
 @end deffn
+@end deffn
+
+@deffn {Flash Driver} psoc5lp
+All members of the PSoC 5LP microcontroller family from Cypress
+include internal program flash and use ARM Cortex-M3 cores.
+The driver probes for a number of these chips and autoconfigures itself,
+apart from the base address.
+
+@example
+flash bank $_FLASHNAME psoc5lp 0x00000000 0 0 0 $_TARGETNAME
+@end example
+
+@b{Note:} PSoC 5LP chips can be configured to have ECC enabled or disabled.
+@quotation Attention
+If flash operations are performed in ECC-disabled mode, they will also affect
+the ECC flash region. Erasing a 16k flash sector in the 0x00000000 area will
+then also erase the corresponding 2k data bytes in the 0x48000000 area.
+Writing to the ECC data bytes in ECC-disabled mode is not implemented.
+@end quotation
+
+Commands defined in the @var{psoc5lp} driver:
+
+@deffn Command {psoc5lp mass_erase}
+Erases all flash data and ECC/configuration bytes, all flash protection rows,
+and all row latches in all flash arrays on the device.
+@end deffn
+@end deffn
+
+@deffn {Flash Driver} psoc5lp_eeprom
+All members of the PSoC 5LP microcontroller family from Cypress
+include internal EEPROM and use ARM Cortex-M3 cores.
+The driver probes for a number of these chips and autoconfigures itself,
+apart from the base address.
+
+@example
+flash bank $_CHIPNAME.eeprom psoc5lp_eeprom 0x40008000 0 0 0 $_TARGETNAME
+@end example
+@end deffn
+
+@deffn {Flash Driver} psoc5lp_nvl
+All members of the PSoC 5LP microcontroller family from Cypress
+include internal Nonvolatile Latches and use ARM Cortex-M3 cores.
+The driver probes for a number of these chips and autoconfigures itself.
+
+@example
+flash bank $_CHIPNAME.nvl psoc5lp_nvl 0 0 0 0 $_TARGETNAME
+@end example
+
+PSoC 5LP chips have multiple NV Latches:
+
+@itemize
+@item Device Configuration NV Latch - 4 bytes
+@item Write Once (WO) NV Latch - 4 bytes
+@end itemize
+
+@b{Note:} This driver only implements the Device Configuration NVL.
+
+The @var{psoc5lp} driver reads the ECC mode from Device Configuration NVL.
+@quotation Attention
+Switching ECC mode via write to Device Configuration NVL will require a reset
+after successful write.
+@end quotation
 @end deffn
 
 @deffn {Flash Driver} psoc6
