@@ -48,7 +48,15 @@
 #define LOG_DEBUG LOG_INFO
 #endif
 
-/* M3ETA */
+/*
+ * Driver Defaults.
+ */
+
+#define DEFAULT_TARGET_BUFFER     (0x10002000)
+
+/*
+ * M3ETA
+ */
 
 #define ETA_COMMON_SRAM_MAX_M3ETA  (0x00020000)
 #define ETA_COMMON_SRAM_BASE_M3ETA (0x00010000)
@@ -426,6 +434,32 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 	return i;
 }
 
+/**
+ * @brief Target must be halted and probed before commands are executed.
+ * @param bank - Flash bank context.
+ * @returns ERROR_OK or target not ready codes.
+ *
+ */
+static int target_ready(struct flash_bank *bank)
+{
+	struct etacorem3_flash_bank *etacorem3_info = bank->driver_priv;
+	int retval;
+
+	if (etacorem3_info->probed == 0) {
+		LOG_ERROR("Target not probed.");
+		retval = ERROR_FLASH_BANK_NOT_PROBED;
+	} else if (bank->target->state != TARGET_HALTED) {
+		LOG_ERROR("Target not halted.");
+		retval = ERROR_TARGET_NOT_HALTED;
+	} else if (bank->size == 0) {
+		LOG_ERROR("Target flash bank empty.");
+		retval = ERROR_FLASH_SECTOR_INVALID;
+	} else
+		retval = ERROR_OK;
+
+	return retval;
+}
+
 /*
  * OpenOCD exec commands.
  */
@@ -569,26 +603,63 @@ err_alloc_code:
 
 	return retval;
 }
+
 /**
- * Mass erase flash bank.
+ * @brief Erase info space. [ECM3531]
+ * @param bank
+ * @returns
+ *
+ */
+static int etacorem3_info_erase(struct flash_bank *bank)
+{
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+
+	int retval = target_ready(bank);
+	if (retval != ERROR_OK)
+		return retval;
+
+	/*
+	 * Load SRAM Parameters.
+	 */
+
+	eta_erase_interface sramargs = {
+		etacorem3_bank->flash_base,	/**< Start of flash. */
+		0x00000000,	/**< Length 0 for all. */
+		0x00000001,	/**< Option 0x2, info space erase. */
+		etacorem3_bank->bootrom_erase_entry,	/**< bootrom entry point. */
+		etacorem3_bank->bootrom_version,/**< ecm3501 chip or fpga, m3eta, ecm3531 */
+		BREAKPOINT	/**< Return code from bootrom. */
+	};
+
+	/* Common erase execution code. */
+	retval = common_erase_run(bank,
+			sizeof(eta_erase_interface), sramargs);
+
+	/* if successful, mark sectors as erased */
+	if (retval == ERROR_OK)
+		write_is_erased(bank,
+			etacorem3_bank->flash_base,
+			etacorem3_bank->flash_base + etacorem3_bank->flash_size,
+			1);
+
+	LOG_DEBUG("Mass erase on bank %d.", bank->bank_number);
+
+	return retval;
+}
+
+/**
+ * Mass erase entire flash bank.
  * @param bank Pointer to the flash bank descriptor.
  * @return retval
  *
  */
 static int etacorem3_mass_erase(struct flash_bank *bank)
 {
-	struct target *target = bank->target;
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
-	int retval = ERROR_OK;
 
-	if (target->state != TARGET_HALTED) {
-		LOG_ERROR("Target not halted");
-		return ERROR_TARGET_NOT_HALTED;
-	}
-	if (!etacorem3_bank->probed) {
-		LOG_ERROR("Target not probed");
-		return ERROR_FLASH_BANK_NOT_PROBED;
-	}
+	int retval = target_ready(bank);
+	if (retval != ERROR_OK)
+		return retval;
 
 	/*
 	 * Load SRAM Parameters.
@@ -616,12 +687,11 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 
 	LOG_DEBUG("Mass erase on bank %d.", bank->bank_number);
 
-/*err_alloc_code:*/
 	return retval;
 }
 
 /**
- * Erase pages in flash.
+ * Erase sectors in flash.
  *
  * @param bank Pointer to the flash bank descriptor.
  * @param first
@@ -632,17 +702,11 @@ static int etacorem3_mass_erase(struct flash_bank *bank)
 static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
-	struct target *target = bank->target;
 	int retval;
 
-	if (target->state != TARGET_HALTED) {
-		LOG_ERROR("Target not halted");
-		return ERROR_TARGET_NOT_HALTED;
-	}
-	if (!etacorem3_bank->probed) {
-		LOG_ERROR("Target not probed");
-		return ERROR_FLASH_BANK_NOT_PROBED;
-	}
+	retval = target_ready(bank);
+	if (retval != ERROR_OK)
+		return retval;
 
 	/*
 	 * Check for valid page range.
@@ -690,19 +754,20 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 	return retval;
 }
 
+
+
 /**
  * Write pages to flash from buffer.
- * @param bank
- * @param buffer
- * @param offset
- * @param count
+ * @param bank - flash descriptor.
+ * @param buffer - data to write.
+ * @param offset  - 32 bit aligned byte offset from base address.
+ * @param count - 32 bit aligned Number of bytes.
  * @returns success ERROR_OK
  */
 static int etacorem3_write(struct flash_bank *bank,
 	const uint8_t *buffer, uint32_t offset, uint32_t count)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
-	struct target *target = bank->target;
 	uint32_t address = bank->base + offset;
 	uint32_t sram_buffer;
 	uint32_t maxbuffer;
@@ -711,7 +776,10 @@ static int etacorem3_write(struct flash_bank *bank,
 	struct working_area *bufferarea = NULL, *stackarea = NULL;
 	int retval = ERROR_OK;
 
-	/* Bootrom uses 32 bit boundaries, 64 bit count. */
+	/*
+     * Bootrom uses 32 bit boundaries, 64 bit count.
+     * Force 32 bit count here.
+     */
 	if (((count%4) != 0) || ((offset%4) != 0)) {
 		LOG_ERROR("write block must be multiple of 4 bytes in offset & length");
 		return ERROR_FAIL;
@@ -802,7 +870,7 @@ static int etacorem3_write(struct flash_bank *bank,
 		/*
 		 * Load target Write Buffer.
 		 */
-		retval = target_write_buffer(target, sram_buffer, thisrun_count, buffer);
+		retval = target_write_buffer(bank->target, sram_buffer, thisrun_count, buffer);
 		if (retval != ERROR_OK) {
 			LOG_ERROR("status(%d):%s\n", retval, "error writing buffer to target.");
 			break;
@@ -903,14 +971,42 @@ err_alloc_code:
 
 	return retval;
 }
+/** Write info space [ECM3531].
+@param flash_bank bank - descriptor
+@param uint offset - 0 for info space.
+@param uint count - 32
+@param uint instance.
+ */
+static int etacorem3_write_info(struct flash_bank *bank,
+	uint32_t target_buffer, uint32_t offset, uint32_t count)
+{
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+
+	int retval = target_ready(bank);
+	if (retval != ERROR_OK)
+		return retval;
+
+	if (count > etacorem3_bank->pagesize) {
+		LOG_ERROR("Count must be < %d", etacorem3_bank->pagesize);
+		return ERROR_FAIL;
+	}
+
+	return retval;
+}
+
+static int etacorem3_read_info(struct flash_bank *bank,
+	uint32_t target_buffer, uint32_t offset, uint32_t count)
+{
+    return ERROR_OK;
+}
 
 /**
  * Can't protect/unprotect pages on etacorem3.
- * @param bank
- * @param set
- * @param first
- * @param last
- * @returns
+ * @param bank - descriptor.
+ * @param set - on or off, always off.
+ * @param first - starting page.
+ * @param last - ending page.
+ * @returns - OK.
  */
 static int etacorem3_protect(struct flash_bank *bank, int set, int first, int last)
 {
@@ -918,13 +1014,13 @@ static int etacorem3_protect(struct flash_bank *bank, int set, int first, int la
 	 * Can't protect/unprotect on the etacorem3.
 	 * Initialized to unprotected.
 	 */
-	LOG_WARNING("Cannot protect/unprotect.");
+	LOG_WARNING("Cannot protect/unprotect flash.");
 	return ERROR_OK;
 }
 
 /**
  * Sectors are always unprotected.
- * @param bank
+ * @param bank - descriptor
  * @returns
  *
  */
@@ -955,7 +1051,7 @@ static int etacorem3_probe(struct flash_bank *bank)
 		LOG_DEBUG("Probing part.");
 
 	/* Check bootrom version, get_variant sets default, no errors. */
-	etacorem3_bank->pagesize = 4096;
+	etacorem3_bank->pagesize = ETA_COMMON_FLASH_PAGE_SIZE_ECM3531;
 	etacorem3_bank->magic_address = MAGIC_ADDR_ECM3501;
 
 	etacorem3_bank->bootrom_version = get_variant(bank);
@@ -1169,6 +1265,79 @@ COMMAND_HANDLER(etacorem3_handle_mass_erase_command)
 	return ERROR_OK;
 }
 
+/**
+ * @brief Erase info space. [ECM3531]
+ * @param etacorem3_handle_erase_info_command 
+ * @returns OK, Command Syntax, or Flash Bank not found.
+ * 
+ */
+COMMAND_HANDLER(etacorem3_handle_erase_info_command)
+{
+	if (CMD_ARGC < 1)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	struct flash_bank *bank;
+	uint32_t retval = CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
+	if (ERROR_OK != retval)
+		return retval;
+
+	etacorem3_info_erase(bank);
+
+	return ERROR_OK;
+}
+
+/**
+ * @brief write info space. [ECM3531]
+ * @param etacompute handle_write_info_command 
+ * @returns 
+ * 
+ */
+COMMAND_HANDLER(etacorem3_handle_write_info_command)
+{
+	struct flash_bank *bank;
+	uint32_t target_buffer, offset, count;
+
+	if (CMD_ARGC < 4)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], target_buffer);
+    if (target_buffer == 0)
+        target_buffer = DEFAULT_TARGET_BUFFER;
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], offset);
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[3], count);
+
+	CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
+
+	etacorem3_write_info(bank, target_buffer, offset, count);
+
+	return ERROR_OK;
+}
+/**
+ * @brief read info space. [ECM3531]
+ * @param etacompute handle_read_info_command 
+ * @returns 
+ * 
+ */
+COMMAND_HANDLER(etacorem3_handle_read_info_command)
+{
+	struct flash_bank *bank;
+	uint32_t target_buffer, offset, count;
+
+	if (CMD_ARGC < 4)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], target_buffer);
+    if (target_buffer == 0)
+        target_buffer = DEFAULT_TARGET_BUFFER;
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], offset);
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[3], count);
+
+	CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
+
+	etacorem3_read_info(bank, target_buffer, offset, count);
+
+	return ERROR_OK;
+}
 
 /**
  * Register exec commands, extensions to standard OCD commands.
@@ -1182,6 +1351,29 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 		.handler = etacorem3_handle_mass_erase_command,
 		.mode = COMMAND_EXEC,
 		.help = "Erase entire device",
+	},
+	{
+		.name = "erase_info",
+		.handler = etacorem3_handle_erase_info_command,
+		.mode = COMMAND_EXEC,
+		.usage = "<bank>",
+		.help = "Erase info space. [ECM3531]",
+	},
+	{
+		.name = "write_info",
+		.handler = etacorem3_handle_write_info_command,
+		.mode = COMMAND_EXEC,
+		.usage = "<bank> <target-buffer> <offset> <count>",
+		.help =
+			"Write info space in 32 bit words. [ECM3531]",
+	},
+	{
+		.name = "read_info",
+		.handler = etacorem3_handle_read_info_command,
+		.mode = COMMAND_EXEC,
+		.usage = "<bank> <target-buffer> <offset> <count>",
+		.help =
+			"Read info space in 32 bit words. [ECM3531]",
 	},
 	COMMAND_REGISTRATION_DONE
 };
