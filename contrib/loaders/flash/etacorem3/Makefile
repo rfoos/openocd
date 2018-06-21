@@ -1,6 +1,8 @@
-
-TOPDIR =      ../../../..
+# Build arm object, convert to inc file for OpenOCD include.
+# For target debuging, make xxx.elf.
+TOPDIR = ../../../..
 BIN2C = $(TOPDIR)/src/helper/bin2char.sh
+PROJECT_NAME := $(notdir $(CURDIR))
 
 CROSS_COMPILE   ?=      arm-none-eabi-
 
@@ -11,7 +13,7 @@ OBJDUMP	= $(CROSS_COMPILE)objdump
 
 CC_OPTS	:= -mcpu=cortex-m3 -mthumb -mlittle-endian -O0
 CC_OPTS	+= -fmessage-length=0 -fsigned-char -std=gnu11
-CC_OPTS	+= -ffunction-sections -fdata-sections
+CC_OPTS	+= -ffunction-sections -fdata-sections -g3
 CC_OPTS	+= -DOCD -DPRTCC
 
 LINKER_SCRIPT	:= etacorem3.ld
@@ -19,13 +21,13 @@ LINKER_OPTS	:= --specs=nosys.specs -mcpu=cortex-m3 -mthumb
 LINKER_OPTS     += -mlittle-endian -O0 -fmessage-length=0 -fsigned-char
 LINKER_OPTS     += -ffunction-sections -fdata-sections -Wl,--gc-sections
 LINKER_OPTS     += -nostartfiles -nostdlib
-LINKER_OPTS     +=  -Xlinker -Map=$@.map
+LINKER_OPTS     +=  -Xlinker -Map=$$@.map -g3
 
-.INTERMEDIATE: erase.elf write.elf
+.INTERMEDIATE: erase.elf write.elf read.elf
 
-all: erase.inc write.inc
+all: erase.inc write.inc read.inc
 
-erase.elf write.elf: etacorem3_flash_common.h
+erase.elf write.elf read.elf: etacorem3_flash_common.h
 
 %.bin:	%.elf
 	$(OBJCOPY) --verbose -O binary "$<"  "$@"

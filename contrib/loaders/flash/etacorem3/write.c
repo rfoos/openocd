@@ -35,9 +35,6 @@
 /** Flash helper function for write. */
 BootROM_flash_program_T BootROM_flash_program;
 BootROM_flash_program_space_T BootROM_flash_program_space;
-#ifndef OCD
-SET_MAGIC_NUMBERS;
-#endif
 
 #if OCD
 /**
@@ -63,23 +60,26 @@ int main(uint32_t sram_param_start)
  */
 int main(void)
 {
-	eta_write_interface *flash_interface;
-
-	flash_interface = (eta_write_interface *) SRAM_PARAM_START;
+	eta_write_interface *flash_interface = \
+		(eta_write_interface *) SRAM_PARAM_START;
 #endif
 
 	uint32_t flash_address = flash_interface->flash_address;
 	uint32_t flash_length = flash_interface->flash_length;
 	uint32_t flash_address_max = flash_address + flash_length;
+	uint32_t options = flash_interface->options;
+	/* ecm3501 fpga, silicon or ECM3531. */
+	uint32_t bootrom_version = flash_interface->bootrom_version;
 	uint32_t *sram_buffer = (uint32_t *) flash_interface->sram_buffer;
 	/* Allow a default SRAM buffer. */
 	if (sram_buffer == NULL)
 		sram_buffer = (uint32_t *) SRAM_BUFFER_START;
-	/* ecm3501 fpga, silicon or ECM3531. */
-	uint32_t bootrom_version = flash_interface->bootrom_version;
 
-	/* Breakpoint is -2, if something goes wrong in call.
-	 * Don't use negative number returns, set retval as progress. */
+	/*
+     * Set flash_interface->retval as progress.
+	 * Breakpoint is -2, if something goes wrong in call.
+	 * Don't use negative number retval's.
+	 */
 
 	/* Invalid length not caught elsewhere. */
 	if (flash_length == 0) {
@@ -111,23 +111,25 @@ int main(void)
 		goto parameter_error;
 	}
 
-	/* 3531 counts are words, normal and info space. */
+	/* ECM3531 counts are words, normal and info space. */
 	if (bootrom_version == BOOTROM_VERSION_ECM3531) {
-		uint32_t count = (flash_length>>2) + ((flash_length % 16) ? 1 : 0);
+		uint32_t count = (flash_length>>2) + ((flash_length % 4) ? 1 : 0);
 		flash_interface->retval = 6;
 		/* Break or Faults don't return here so set retval before/after. */
 		flash_interface->retval = \
 			ETA_CSP_FLASH_PROGRAM_SPACE(flash_address,
 				sram_buffer,
 				count,
-				BOOTROM_FLASH_SPACE_NORMAL);
+				((options & 2)>>1));
 		goto return_code;
 	}
-	/** @assume BOOTROM_VERSION_ECM3531 or BOOTROM_VERSION_ECM3531_FPGA
-	 * 3501 Board and FPGA BootROMs use 64 bit counts for length. */
+	/**
+	* @assume BOOTROM_VERSION_ECM3531 or BOOTROM_VERSION_ECM3531_FPGA
+	 * 3501 Board and FPGA BootROMs use 64 bit counts for length.
+	*/
 	uint32_t count = (flash_length >> 3);
 
-	if (flash_interface->options == 1) {
+	if (flash_interface->options == OPTION_WRITE512) {
 		/* DWord count. */
 		const uint32_t block_size = 64;
 		/* Bytes to increment Flash Address. */

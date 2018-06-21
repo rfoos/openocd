@@ -23,7 +23,7 @@
 
 /**
  * @file
- * Flash Erase for OCD.
+ * Flash Read for OCD.
  * This is an SRAM wrapper routine to call Bootrom helper functions.
  *
  */
@@ -32,9 +32,8 @@
 #include <stdint.h>
 #include "etacorem3_flash_common.h"
 
-/** Flash helper functions for erase. */
-BootROM_flash_erase_T BootROM_flash_erase;
-BootROM_flash_erase_space_T BootROM_flash_erase_space;
+/** Flash helper function for read (ECM3531). */
+BootROM_flash_read_T BootROM_flash_read;
 
 #if OCD
 /**
@@ -46,7 +45,7 @@ BootROM_flash_erase_space_T BootROM_flash_erase_space;
  */
 int main(uint32_t sram_param_start)
 {
-	eta_erase_interface *flash_interface;
+	eta_read_interface *flash_interface;
 
 	/*
 	 * This can also be built into a standalone executable with startup code.
@@ -54,9 +53,9 @@ int main(uint32_t sram_param_start)
 	 * When sram_param_start is 0, the default SRAM_PARAM_START address is used.
 	 */
 	if (sram_param_start == 0)
-		flash_interface = (eta_erase_interface *) SRAM_PARAM_START;
+		flash_interface = (eta_read_interface *) SRAM_PARAM_START;
 	else
-		flash_interface = (eta_erase_interface *) sram_param_start;
+		flash_interface = (eta_read_interface *) sram_param_start;
 #else
 /**
  * Write up to a sector to flash.
@@ -65,8 +64,8 @@ int main(uint32_t sram_param_start)
  */
 int main(void)
 {
-	eta_erase_interface *flash_interface = \
-		(eta_erase_interface *) SRAM_PARAM_START;
+	eta_read_interface *flash_interface = \
+		(eta_read_interface *) SRAM_PARAM_START;
 #endif
 
 	uint32_t flash_address = flash_interface->flash_address;
@@ -74,6 +73,16 @@ int main(void)
 	uint32_t flash_address_max = flash_address + flash_length;
 	uint32_t options = flash_interface->options;
 	uint32_t bootrom_version = flash_interface->bootrom_version;
+	uint32_t *sram_buffer = (uint32_t *) flash_interface->sram_buffer;
+	/* Allow a default SRAM buffer. */
+	if (sram_buffer == NULL)
+		sram_buffer = (uint32_t *) SRAM_BUFFER_START;
+
+	/* ecm3531 only. */
+	if (bootrom_version != BOOTROM_VERSION_ECM3531) {
+		flash_interface->retval = 11;
+		goto parameter_error;
+	}
 	/* ecm3531 same size as ecm3501 chip. */
 	if (flash_address <  ETA_COMMON_FLASH_BASE) {
 		flash_interface->retval = 1;
@@ -88,44 +97,37 @@ int main(void)
 		flash_interface->retval = 3;
 		goto parameter_error;
 	}
-
 	/* Set our Helper function entry point from interface. */
 	if (flash_interface->bootrom_entry_point) {
-		BootROM_flash_erase = \
-			(BootROM_flash_erase_T) flash_interface->bootrom_entry_point;
-		BootROM_flash_erase_space = \
-			(BootROM_flash_erase_space_T) flash_interface->bootrom_entry_point;
+		BootROM_flash_read = \
+			(BootROM_flash_read_T) flash_interface->bootrom_entry_point;
 	} else {
 		flash_interface->retval = 4;
 		goto parameter_error;
 	}
 
-	/* mass_erase, info erase, or multiple page erase. */
-	if ((flash_interface->options & 0x1) == 1) {
-		flash_interface->retval = 5;
-		if (bootrom_version == BOOTROM_VERSION_ECM3531) {
-			ETA_CSP_FLASH_MASS_ERASE_SPACE();
-		} else {
-			ETA_CSP_FLASH_MASS_ERASE();
-		}
-	} else if ((bootrom_version == BOOTROM_VERSION_ECM3531) && \
-		((options & 2) == 2)) {
-		flash_interface->retval = 6;
-		ETA_CSP_FLASH_PAGE_ERASE_SPACE(ETA_COMMON_FLASH_BASE, INFO_SPACE);
-	} else {
-		flash_interface->retval = 6;
-		while (flash_address < flash_address_max) {
-			uint32_t erase_address;
-			erase_address = (flash_address & ETA_COMMON_FLASH_PAGE_ADDR_MASK);
-			/* is ECM3531, is info? */
-			if (bootrom_version == BOOTROM_VERSION_ECM3531) {
-				ETA_CSP_FLASH_PAGE_ERASE(erase_address);
-			} else {
-				ETA_CSP_FLASH_PAGE_ERASE_SPACE(erase_address, NORMAL_SPACE);
-			}
-			flash_address += ETA_COMMON_FLASH_PAGE_SIZE;
-		}
+	/*
+	 * Read 4 32 bit word blocks from addess into buffer.
+	 */
+	options = ((options & 2) >> 1);
+	uint32_t count = flash_length;
+	/* RC=6, Fails on first call. */
+	flash_interface->retval = 6;
+	for (uint32_t I = 0; I < count; I += 16) {
+		/*
+		 * 32 bytes returned each call.
+		 * count is the entire number of bytes.
+		 * increment flash address by 16.
+		 * increment sram_buffer by 4.
+		 */
+		ETA_CSP_FLASH_READ(
+			flash_address + I,
+			options,
+			sram_buffer + I/4);
+		/* RC=i/16. Failed on the I'th call (except 1). */
+		flash_interface->retval = (I >> 4);
 	}
+	/* if second call fails, give user a mulligan. */
 	flash_interface->retval = 0;
 
 parameter_error:
