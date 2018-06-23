@@ -76,7 +76,7 @@ int main(void)
 		sram_buffer = (uint32_t *) SRAM_BUFFER_START;
 
 	/*
-     * Set flash_interface->retval as progress.
+	* Set flash_interface->retval as progress.
 	 * Breakpoint is -2, if something goes wrong in call.
 	 * Don't use negative number retval's.
 	 */
@@ -110,7 +110,7 @@ int main(void)
 		flash_interface->retval = 4;
 		goto parameter_error;
 	}
-
+	uint32_t space_option = ((options & 2)>>1);
 	/* ECM3531 counts are words, normal and info space. */
 	if (bootrom_version == BOOTROM_VERSION_ECM3531) {
 		uint32_t count = (flash_length>>2) + ((flash_length % 4) ? 1 : 0);
@@ -120,9 +120,14 @@ int main(void)
 			ETA_CSP_FLASH_PROGRAM_SPACE(flash_address,
 				sram_buffer,
 				count,
-				((options & 2)>>1));
+				space_option);
 		goto return_code;
-	}
+	} else if (space_option == 1)
+		/* Not 3531. If info space requested, error. */
+		goto parameter_error;
+
+	flash_interface->retval = 5;
+
 	/**
 	* @assume BOOTROM_VERSION_ECM3531 or BOOTROM_VERSION_ECM3531_FPGA
 	 * 3501 Board and FPGA BootROMs use 64 bit counts for length.

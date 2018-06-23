@@ -184,15 +184,15 @@ typedef struct {
  * Function call wrappers include additional flash timing parameters.
  */
 
-#define ETA_CSP_FLASH_MASS_ERASE_SPACE() \
-	BootROM_flash_erase_space(0x01000000, MASS_ERASE, NORMAL_SPACE, \
+#define ETA_CSP_FLASH_MASS_ERASE_SPACE(SPACE)  \
+	BootROM_flash_erase_space(ETA_COMMON_FLASH_BASE, MASS_ERASE, SPACE, \
 		BOOTROM_FLASH_TNVS_COUNT_SPACE, \
 		BOOTROM_FLASH_TERASE_COUNT_SPACE,                  \
 		BOOTROM_FLASH_TNVH_COUNT_SPACE,                    \
 		BOOTROM_FLASH_TRCV_COUNT_SPACE);
 
 #define ETA_CSP_FLASH_MASS_ERASE() \
-	BootROM_flash_erase(0x01000000, MASS_ERASE, \
+	BootROM_flash_erase(ETA_COMMON_FLASH_BASE, MASS_ERASE, \
 		BOOTROM_FLASH_TNVS_COUNT, \
 		BOOTROM_FLASH_TERASE_COUNT,                  \
 		BOOTROM_FLASH_TNVH_COUNT,                    \

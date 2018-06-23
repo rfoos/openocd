@@ -137,6 +137,8 @@ struct etacorem3_flash_bank {
 	uint32_t time_per_page_erase;
 	uint32_t timeout_erase;
 	uint32_t timeout_program;
+	/* Flags and Semaphores */
+	uint32_t info_semaphore;
 	bool probed;	/**< Flash bank has been probed. */
 };
 
@@ -493,7 +495,7 @@ static const uint8_t read_sector_code[] = {
 /*
  * Routines to load and run target code.
  */
- 
+
 /** Common code for erase commands. */
 static int common_erase_run(struct flash_bank *bank,
 	int param_size,
@@ -642,7 +644,7 @@ static int etacorem3_info_erase(struct flash_bank *bank)
 	eta_erase_interface sramargs = {
 		etacorem3_bank->flash_base,	/**< Start of flash. */
 		0x00000000,	/**< Length 0 for all. */
-		0x00000001,	/**< Option 0x2, info space erase. */
+		0x00000002,	/**< Option 0x2, info space erase. */
 		etacorem3_bank->bootrom_erase_entry,	/**< bootrom entry point. */
 		etacorem3_bank->bootrom_version,/**< ecm3501 chip or fpga, m3eta, ecm3531 */
 		BREAKPOINT	/**< Return code from bootrom. */
@@ -771,8 +773,6 @@ static int etacorem3_erase(struct flash_bank *bank, int first, int last)
 	return retval;
 }
 
-
-
 /**
  * Write pages to flash from buffer.
  * @param bank - flash descriptor.
@@ -900,12 +900,15 @@ static int etacorem3_write(struct flash_bank *bank,
 		uint32_t write512_option = 0;
 		if (etacorem3_bank->bootrom_version == BOOTROM_VERSION_ECM3501)
 			write512_option = 1;
+		/* check for info space option. */
+		if (etacorem3_bank->bootrom_version == BOOTROM_VERSION_ECM3531)
+			write512_option |= (etacorem3_bank->info_semaphore & 2);
 
 		eta_write_interface sramargs = {
 			address,	/**< Start address in flash. */
 			thisrun_count,	/**< Length in bytes. */
 			sram_buffer,
-			write512_option,	/**< Option 1, write flash in 512 byte blocks. */
+			write512_option,	/**< 1, write 512 byte blocks. 2, info space. */
 			etacorem3_bank->bootrom_write_entry,	/**< bootrom entry point. */
 			etacorem3_bank->bootrom_version,/**< chip or fpga */
 			BREAKPOINT	/**< Return code from bootrom. */
@@ -995,7 +998,7 @@ err_alloc_code:
 @param uint instance.
  */
 static int etacorem3_write_info(struct flash_bank *bank,
-	uint32_t target_buffer, uint32_t offset, uint32_t count)
+	const uint8_t *buffer, uint32_t offset, uint32_t count)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 
@@ -1003,13 +1006,13 @@ static int etacorem3_write_info(struct flash_bank *bank,
 	if (retval != ERROR_OK)
 		return retval;
 
-	if (count > etacorem3_bank->pagesize) {
-		LOG_ERROR("Count must be < %d", etacorem3_bank->pagesize);
-		return ERROR_FAIL;
-	}
+	etacorem3_bank->info_semaphore = 2;
+	etacorem3_write(bank, buffer, offset, count);
+	etacorem3_bank->info_semaphore = 0;
 
 	return retval;
 }
+/** Read into to target buffer. */
 static int etacorem3_read_info(struct flash_bank *bank,
 	uint32_t target_buffer, uint32_t offset, uint32_t count)
 {
@@ -1025,7 +1028,7 @@ static int etacorem3_read_info(struct flash_bank *bank,
  * @returns success ERROR_OK
  */
 static int etacorem3_read_buffer(struct flash_bank *bank, target_addr_t address,
-		uint32_t count, uint8_t *buffer)
+	uint32_t count, uint8_t *buffer)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	uint32_t sram_buffer;
@@ -1119,18 +1122,18 @@ static int etacorem3_read_buffer(struct flash_bank *bank, target_addr_t address,
 		else
 			thisrun_count = count;
 
-        /*
-         * Load SRAM Parameters.
-         */
-        eta_read_interface sramargs = {
-            address,	/**< Start address in flash. */
-            thisrun_count,	/**< Length in bytes. */
-            sram_buffer,
-            0,	/**< 2 - Info or Normal space */
-            etacorem3_bank->bootrom_read_entry,	/**< bootrom entry point. */
-            etacorem3_bank->bootrom_version,/**< chip or fpga */
-            BREAKPOINT	/**< Return code from bootrom. */
-        };
+		/*
+		 * Load SRAM Parameters.
+		 */
+		eta_read_interface sramargs = {
+			address,/**< Start address in flash. */
+			thisrun_count,	/**< Length in bytes. */
+			sram_buffer,
+			etacorem3_bank->info_semaphore,	/**< 2 - Info or Normal space */
+			etacorem3_bank->bootrom_read_entry,	/**< bootrom entry point. */
+			etacorem3_bank->bootrom_version,/**< chip or fpga */
+			BREAKPOINT	/**< Return code from bootrom. */
+		};
 
 		retval = target_write_u32_array(bank->target,
 				paramarea->address,
@@ -1158,10 +1161,10 @@ static int etacorem3_read_buffer(struct flash_bank *bank, target_addr_t address,
 		buf_set_u32(reg_params[1].value, 0, 32, paramarea->address);
 
 		/*
-         * Ignore expected error messages from breakpoint.
+		* Ignore expected error messages from breakpoint.
 		 * int save_debug_level = debug_level;
 		 * debug_level = LOG_LVL_OUTPUT
-         */
+		*/
 
 		/* Run the code. */
 		retval = target_run_algorithm(bank->target,
@@ -1218,6 +1221,16 @@ err_alloc_code:
 	if (bufferarea != NULL)
 		target_free_working_area(bank->target, bufferarea);
 
+	return retval;
+}
+
+static int etacorem3_read_info_buffer(struct flash_bank *bank, target_addr_t address,
+	uint32_t count, uint8_t *buffer)
+{
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+	etacorem3_bank->info_semaphore = 2;
+	int retval = etacorem3_read_buffer(bank, address, count, buffer);
+	etacorem3_bank->info_semaphore = 0;
 	return retval;
 }
 
@@ -1467,7 +1480,7 @@ FLASH_BANK_COMMAND_HANDLER(etacorem3_flash_bank_command)
  * Handle external mass erase command.
  * @returns ERROR_COMMAND_SYNTAX_ERROR or ERROR_OK.
  */
-COMMAND_HANDLER(etacorem3_handle_mass_erase_command)
+COMMAND_HANDLER(handle_etacorem3_mass_erase_command)
 {
 
 	if (CMD_ARGC < 1)
@@ -1492,11 +1505,11 @@ COMMAND_HANDLER(etacorem3_handle_mass_erase_command)
 
 /**
  * @brief Erase info space. [ECM3531]
- * @param etacorem3_handle_erase_info_command
+ * @param handle_etacorem3_erase_info_command
  * @returns OK, Command Syntax, or Flash Bank not found.
  *
  */
-COMMAND_HANDLER(etacorem3_handle_erase_info_command)
+COMMAND_HANDLER(handle_etacorem3_erase_info_command)
 {
 	if (CMD_ARGC < 1)
 		return ERROR_COMMAND_SYNTAX_ERROR;
@@ -1517,7 +1530,7 @@ COMMAND_HANDLER(etacorem3_handle_erase_info_command)
  * @returns
  *
  */
-COMMAND_HANDLER(etacorem3_handle_write_info_command)
+COMMAND_HANDLER(handle_etacorem3_write_info_command)
 {
 	struct flash_bank *bank;
 	uint32_t target_buffer, offset, count;
@@ -1532,30 +1545,154 @@ COMMAND_HANDLER(etacorem3_handle_write_info_command)
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[3], count);
 
 	CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
-
-	etacorem3_write_info(bank, target_buffer, offset, count);
+	uint8_t *buffer = 0;
+	etacorem3_write_info(bank, buffer, offset, count);
 
 	return ERROR_OK;
 }
-COMMAND_HANDLER(etacorem3_handle_dump_info_image_command)
+COMMAND_HANDLER(handle_etacorem3_write_info_image_command)
+{
+	uint32_t address;
+	uint8_t *buffer;
+	uint32_t size;
+	struct fileio *fileio;
+
+	if (CMD_ARGC < 1 || CMD_ARGC > 3)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	command_print(CMD_CTX, "Step 0 %d:%s:", CMD_ARGC, CMD_ARGV[0]);
+
+	if (CMD_ARGC > 1) {
+		command_print(CMD_CTX, ":%s:", CMD_ARGV[1]);
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], address);
+	} else
+		address = 0x01000000;
+
+	if (CMD_ARGC > 2) {
+		command_print(CMD_CTX, ":%s:", CMD_ARGV[2]);
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], size);
+	} else
+		size = 4096;
+
+	struct flash_bank *bank;
+	struct target *target = get_current_target(CMD_CTX);
+	int retval = get_flash_bank_by_addr(target, address, true, &bank);
+	if (retval != ERROR_OK)
+		return retval;
+
+	struct duration bench;
+	duration_start(&bench);
+
+	if (fileio_open(&fileio, CMD_ARGV[0], FILEIO_READ, FILEIO_BINARY) != ERROR_OK)
+		return ERROR_FAIL;
+
+	size_t filesize;
+	retval = fileio_size(fileio, &filesize);
+	if (retval != ERROR_OK) {
+		fileio_close(fileio);
+		return retval;
+	}
+
+	uint32_t length = MIN(filesize, size);
+
+	if (!length) {
+		LOG_INFO("Nothing to write to flash bank");
+		fileio_close(fileio);
+		return ERROR_OK;
+	}
+
+	if (length != filesize)
+		LOG_INFO("File content exceeds flash bank size. Only writing the "
+			"first %u bytes of the file", length);
+
+	target_addr_t start_addr = address;
+	target_addr_t aligned_start = flash_write_align_start(bank, start_addr);
+	target_addr_t end_addr = start_addr + length - 1;
+	target_addr_t aligned_end = flash_write_align_end(bank, end_addr);
+	uint32_t aligned_size = aligned_end + 1 - aligned_start;
+	uint32_t padding_at_start = start_addr - aligned_start;
+	uint32_t padding_at_end = aligned_end - end_addr;
+
+	buffer = malloc(aligned_size);
+	if (buffer == NULL) {
+		fileio_close(fileio);
+		LOG_ERROR("Out of memory");
+		return ERROR_FAIL;
+	}
+
+	if (padding_at_start) {
+		memset(buffer, bank->default_padded_value, padding_at_start);
+		LOG_WARNING("Start offset 0x%08" PRIx32
+			" breaks the required alignment of flash bank %s",
+			address, bank->name);
+		LOG_WARNING("Padding %" PRId32 " bytes from " TARGET_ADDR_FMT,
+			padding_at_start, aligned_start);
+	}
+
+	uint8_t *ptr = buffer + padding_at_start;
+	size_t buf_cnt;
+	if (fileio_read(fileio, length, ptr, &buf_cnt) != ERROR_OK) {
+		free(buffer);
+		fileio_close(fileio);
+		return ERROR_FAIL;
+	}
+
+	if (buf_cnt != length) {
+		LOG_ERROR("Short read");
+		free(buffer);
+		return ERROR_FAIL;
+	}
+
+	ptr += length;
+
+	if (padding_at_end) {
+		memset(ptr, bank->default_padded_value, padding_at_end);
+		LOG_INFO("Padding at " TARGET_ADDR_FMT " with %" PRId32
+			" bytes (bank write end alignment)",
+			end_addr + 1, padding_at_end);
+	}
+
+	retval = etacorem3_write_info(bank, buffer, aligned_start - bank->base, aligned_size);
+
+	free(buffer);
+
+	if ((ERROR_OK == retval) && (duration_measure(&bench) == ERROR_OK)) {
+		command_print(CMD_CTX, "wrote %u bytes from file %s to flash bank %u"
+			" at address 0x%8.8" PRIx32 " in %fs (%0.3f KiB/s)",
+			length, CMD_ARGV[0], bank->bank_number, address,
+			duration_elapsed(&bench), duration_kbps(&bench, length));
+	}
+
+	fileio_close(fileio);
+
+	return retval;
+}
+
+COMMAND_HANDLER(handle_etacorem3_dump_info_image_command)
 {
 	struct fileio *fileio;
 	uint8_t *buffer;
 	target_addr_t address, size;
-	struct duration bench;
 	struct target *target = get_current_target(CMD_CTX);
 
-    command_print(CMD_CTX, "Step 00");
-	if (CMD_ARGC != 3)
+	if (CMD_ARGC < 1 || CMD_ARGC > 3)
 		return ERROR_COMMAND_SYNTAX_ERROR;
-    command_print(CMD_CTX, "Step 0 :%s:%s:%s:", CMD_ARGV[0], CMD_ARGV[1], CMD_ARGV[2]);
 
-    command_print(CMD_CTX, "Step 1");
-	COMMAND_PARSE_ADDRESS(CMD_ARGV[1], address);
-	COMMAND_PARSE_ADDRESS(CMD_ARGV[2], size);
-    command_print(CMD_CTX, "Step 1 address %lx, size %ld", address, size);
+	command_print(CMD_CTX, "Step 0 %d:%s:", CMD_ARGC, CMD_ARGV[0]);
 
-    struct flash_bank *bank;
+	if (CMD_ARGC > 1) {
+		command_print(CMD_CTX, ":%s:", CMD_ARGV[1]);
+		COMMAND_PARSE_NUMBER(u64, CMD_ARGV[1], address);
+	} else
+		address = 0x01000000;
+
+	if (CMD_ARGC > 2) {
+		command_print(CMD_CTX, ":%s:", CMD_ARGV[2]);
+		COMMAND_PARSE_NUMBER(u64, CMD_ARGV[2], size);
+	} else
+		size = 4096;
+
+	struct flash_bank *bank;
 	int retval = get_flash_bank_by_addr(target, address, true, &bank);
 	if (retval != ERROR_OK)
 		return retval;
@@ -1564,21 +1701,22 @@ COMMAND_HANDLER(etacorem3_handle_dump_info_image_command)
 	buffer = malloc(buf_size);
 	if (!buffer)
 		return ERROR_FAIL;
-    command_print(CMD_CTX, "Step 2");
+	command_print(CMD_CTX, "Step 2");
 
 	retval = fileio_open(&fileio, CMD_ARGV[0], FILEIO_WRITE, FILEIO_BINARY);
 	if (retval != ERROR_OK) {
 		free(buffer);
 		return retval;
 	}
-    command_print(CMD_CTX, "Step 3");
+	command_print(CMD_CTX, "Step 3");
 
+	struct duration bench;
 	duration_start(&bench);
 
 	while (size > 0) {
 		size_t size_written;
 		uint32_t this_run_size = (size > buf_size) ? buf_size : size;
-		retval = etacorem3_read_buffer(bank, address, this_run_size, buffer);
+		retval = etacorem3_read_info_buffer(bank, address, this_run_size, buffer);
 		if (retval != ERROR_OK)
 			break;
 
@@ -1598,8 +1736,8 @@ COMMAND_HANDLER(etacorem3_handle_dump_info_image_command)
 		if (retval != ERROR_OK)
 			return retval;
 		command_print(CMD_CTX,
-				"dumped %zu bytes in %fs (%0.3f KiB/s)", filesize,
-				duration_elapsed(&bench), duration_kbps(&bench, filesize));
+			"dumped %zu bytes in %fs (%0.3f KiB/s)", filesize,
+			duration_elapsed(&bench), duration_kbps(&bench, filesize));
 	}
 
 	int retvaltemp = fileio_close(fileio);
@@ -1615,7 +1753,7 @@ COMMAND_HANDLER(etacorem3_handle_dump_info_image_command)
  * @returns
  *
  */
-COMMAND_HANDLER(etacorem3_handle_read_info_command)
+COMMAND_HANDLER(handle_etacorem3_read_info_command)
 {
 	struct flash_bank *bank;
 	uint32_t target_buffer, offset, count;
@@ -1645,20 +1783,20 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 	{
 		.name = "mass_erase",
 		.usage = "<bank>",
-		.handler = etacorem3_handle_mass_erase_command,
+		.handler = handle_etacorem3_mass_erase_command,
 		.mode = COMMAND_EXEC,
 		.help = "Erase entire device",
 	},
 	{
 		.name = "erase_info",
-		.handler = etacorem3_handle_erase_info_command,
+		.handler = handle_etacorem3_erase_info_command,
 		.mode = COMMAND_EXEC,
 		.usage = "<bank>",
 		.help = "Erase info space. [ECM3531]",
 	},
 	{
 		.name = "write_info",
-		.handler = etacorem3_handle_write_info_command,
+		.handler = handle_etacorem3_write_info_command,
 		.mode = COMMAND_EXEC,
 		.usage = "<bank> <target-buffer> <offset> <count>",
 		.help =
@@ -1666,7 +1804,7 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 	},
 	{
 		.name = "read_info",
-		.handler = etacorem3_handle_read_info_command,
+		.handler = handle_etacorem3_read_info_command,
 		.mode = COMMAND_EXEC,
 		.usage = "<bank> <target-buffer> <offset> <count>",
 		.help =
@@ -1674,10 +1812,17 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 	},
 	{
 		.name = "dump_info_image",
-		.handler = etacorem3_handle_dump_info_image_command,
+		.handler = handle_etacorem3_dump_info_image_command,
 		.mode = COMMAND_EXEC,
 		.usage = "filename address size",
 		.help = "Read info space to file. [ECM3531]",
+	},
+	{
+		.name = "write_info_image",
+		.handler = handle_etacorem3_write_info_image_command,
+		.mode = COMMAND_EXEC,
+		.usage = "filename address size",
+		.help = "Write info space from file. [ECM3531]",
 	},
 	COMMAND_REGISTRATION_DONE
 };

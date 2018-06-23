@@ -106,10 +106,11 @@ int main(void)
 		goto parameter_error;
 	}
 
+	uint32_t space_option = ((options & 2)>>1);
+
 	/*
 	 * Read 4 32 bit word blocks from addess into buffer.
 	 */
-	options = ((options & 2) >> 1);
 	uint32_t count = flash_length;
 	/* RC=6, Fails on first call. */
 	flash_interface->retval = 6;
@@ -122,7 +123,7 @@ int main(void)
 		 */
 		ETA_CSP_FLASH_READ(
 			flash_address + I,
-			options,
+			space_option,
 			sram_buffer + I/4);
 		/* RC=i/16. Failed on the I'th call (except 1). */
 		flash_interface->retval = (I >> 4);
