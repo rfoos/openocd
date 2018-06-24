@@ -30,6 +30,20 @@
 #endif
 
 /*
+ * Driver Defaults.
+ */
+
+#define DEFAULT_TARGET_BUFFER   (0x10002000)
+/** Location wrapper functions look for parameters, and top of stack. */
+#define SRAM_PARAM_START        (0x10001000)
+/** Target buffer start address for write operations. */
+#define SRAM_BUFFER_START       DEFAULT_TARGET_BUFFER
+/** Target buffer size. */
+#define SRAM_BUFFER_SIZE        (0x00002000)
+/** 4k target info buffer. */
+#define SRAM_INFO_START         (0x10005000)
+
+/*
  * Useful bootrom versions.
  */
 
@@ -48,7 +62,7 @@
 #define INFO_SPACE          (0x1)
 #define MASS_ERASE          (0x1)
 
-/* 3531 uses these args. */
+/* ECM3531 Flash timing arguments. */
 
 #define BOOTROM_FLASH_TNVS_COUNT_SPACE   (0x10)
 #define BOOTROM_FLASH_TRE_COUNT_SPACE    (0x28)
@@ -58,7 +72,8 @@
 #define BOOTROM_FLASH_TPGS_COUNT_SPACE   (0x28)
 #define BOOTROM_FLASH_TPROG_COUNT_SPACE  (0x50)
 
-/* 3501 uses these args. */
+/* ECM3501 Flash timing arguments. */
+
 #define BOOTROM_FLASH_TNVS_COUNT   (0x10)
 #define BOOTROM_FLASH_TRE_COUNT    (0x28)
 #define BOOTROM_FLASH_TNVH_COUNT   (0x300)
@@ -67,38 +82,30 @@
 #define BOOTROM_FLASH_TPGS_COUNT   (0x38)
 #define BOOTROM_FLASH_TPROG_COUNT  (0x78)
 
-/* SRAM sizes. */
+/* Common SRAM sizes. */
 
-#define ETA_COMMON_SRAM_MAX  0x10020000
-#define ETA_COMMON_SRAM_BASE 0x10000000
-#define ETA_COMMON_SRAM_SIZE (ETA_COMMON_SRAM_MAX  - ETA_COMMON_SRAM_BASE)
+#define ETA_COMMON_SRAM_MAX     (0x10020000)
+#define ETA_COMMON_SRAM_BASE    (0x10000000)
+#define ETA_COMMON_SRAM_SIZE    \
+	(ETA_COMMON_SRAM_MAX  - ETA_COMMON_SRAM_BASE)
 
-#define ETA_COMMON_SRAM_TOP_ADDR (ETA_COMMON_SRAM_MAX - sizeof(eta_csp_common_sram_top_t))
+/* Common Flash sizes. */
 
-/* Flash size. */
-
-#define ETA_COMMON_FLASH_MAX  0x01080000
-#define ETA_COMMON_FLASH_BASE 0x01000000
-#define ETA_COMMON_FLASH_SIZE (ETA_COMMON_FLASH_MAX  - ETA_COMMON_FLASH_BASE)
-#define ETA_COMMON_FLASH_PAGE_SIZE 4096
-#define ETA_COMMON_FLASH_PAGE_ADDR_BITS 12
-#define ETA_COMMON_FLASH_PAGE_ADDR_MASK 0xFFFFF000
+#define ETA_COMMON_FLASH_MAX            (0x01080000)
+#define ETA_COMMON_FLASH_BASE           (0x01000000)
+#define ETA_COMMON_FLASH_SIZE   \
+	(ETA_COMMON_FLASH_MAX  - ETA_COMMON_FLASH_BASE)
+#define ETA_COMMON_FLASH_PAGE_SIZE      (4096)
+#define ETA_COMMON_FLASH_PAGE_ADDR_BITS (12)
+#define ETA_COMMON_FLASH_PAGE_ADDR_MASK (0xFFFFF000)
 
 /*
- * SRAM Address for magic numbers.
+ * SRAM Start Address for magic numbers.
+ * @see magic_numbers[]
  */
 
 #define MAGIC_ADDR_M3ETA    (0x0001FFF0)
-#define MAGIC_ADDR_ECM3501  (0x1001FFF0)
-
-/** Location wrapper functions look for parameters, and top of stack. */
-#define SRAM_PARAM_START        (0x10001000)
-/** Target buffer start address for write operations. */
-#define SRAM_BUFFER_START       (0x10002000)
-/** Target buffer size. */
-#define SRAM_BUFFER_SIZE        (0x00002000)
-/** 4k target info buffer. */
-#define SRAM_INFO_START         (0x10005000)
+#define MAGIC_ADDR_ECM35xx  (0x1001FFF0)
 
 /*
  * Hard coded table for m3eta and ecm3501 BootROM's.

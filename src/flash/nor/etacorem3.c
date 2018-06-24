@@ -52,59 +52,47 @@
 #endif
 
 /*
- * Driver Defaults.
- */
-
-#define DEFAULT_TARGET_BUFFER     (0x10002000)
-
-/*
  * M3ETA
  */
 
-#define ETA_COMMON_SRAM_MAX_M3ETA  (0x00020000)
-#define ETA_COMMON_SRAM_BASE_M3ETA (0x00010000)
-#define ETA_COMMON_SRAM_SIZE_M3ETA \
-	(ETA_COMMON_SRAM_MAX_M3ETA  - ETA_COMMON_SRAM_BASE_M3ETA)
+#define ETA_SRAM_MAX_M3ETA  (0x00020000)
+#define ETA_SRAM_BASE_M3ETA (0x00010000)
+#define ETA_SRAM_SIZE_M3ETA \
+	(ETA_SRAM_MAX_M3ETA - ETA_SRAM_BASE_M3ETA)
 
-#define ETA_COMMON_FLASH_MAX_M3ETA  (0)
-#define ETA_COMMON_FLASH_BASE_M3ETA (0)
-#define ETA_COMMON_FLASH_SIZE_M3ETA (0)
+#define ETA_FLASH_MAX_M3ETA  (0)
+#define ETA_FLASH_BASE_M3ETA (0)
+#define ETA_FLASH_SIZE_M3ETA (0)
 
 /*
  * ECM3501
  */
 
-#define ETA_COMMON_SRAM_MAX_ECM3501  (0x10020000)
-#define ETA_COMMON_SRAM_BASE_ECM3501 (0x10000000)
-#define ETA_COMMON_SRAM_SIZE_ECM3501 \
-	(ETA_COMMON_SRAM_MAX_ECM3501 - ETA_COMMON_SRAM_BASE_ECM3501)
+#define ETA_SRAM_MAX_ECM3501            ETA_COMMON_SRAM_MAX
+#define ETA_SRAM_BASE_ECM3501           ETA_COMMON_SRAM_BASE
+#define ETA_SRAM_SIZE_ECM3501           ETA_COMMON_SRAM_SIZE
 
-#define ETA_COMMON_FLASH_MAX_ECM3501  (0x01080000)
-#define ETA_COMMON_FLASH_BASE_ECM3501 (0x01000000)
-#define ETA_COMMON_FLASH_SIZE_ECM3501 \
-	(ETA_COMMON_FLASH_MAX_ECM3501 - ETA_COMMON_FLASH_BASE_ECM3501)
+#define ETA_FLASH_MAX_ECM3501           ETA_COMMON_FLASH_MAX
+#define ETA_FLASH_BASE_ECM3501          ETA_COMMON_FLASH_BASE
+#define ETA_FLASH_SIZE_ECM3501          ETA_COMMON_FLASH_SIZE
 
-#define ETA_COMMON_FLASH_PAGE_SIZE_ECM3501 (4096)
-#define ETA_COMMON_FLASH_NUM_PAGES_ECM3501 \
-	(ETA_COMMON_FLASH_SIZE_ECM3501 / ETA_COMMON_FLASH_PAGE_SIZE_ECM3501)
+#define ETA_FLASH_PAGE_SIZE_ECM3501     ETA_COMMON_FLASH_PAGE_SIZE
+#define ETA_FLASH_NUM_PAGES_ECM3501     ETA_COMMON_FLASH_NUM_PAGES
 
 /*
  * ECM3531
  */
 
-#define ETA_COMMON_SRAM_MAX_ECM3531  (0x10020000)
-#define ETA_COMMON_SRAM_BASE_ECM3531 (0x10000000)
-#define ETA_COMMON_SRAM_SIZE_ECM3531 \
-	(ETA_COMMON_SRAM_MAX_ECM3531 - ETA_COMMON_SRAM_BASE_ECM3531)
+#define ETA_SRAM_MAX_ECM3531            ETA_COMMON_SRAM_MAX
+#define ETA_SRAM_BASE_ECM3531           ETA_COMMON_SRAM_BASE
+#define ETA_SRAM_SIZE_ECM3531           ETA_COMMON_SRAM_SIZE
 
-#define ETA_COMMON_FLASH_MAX_ECM3531  (0x01080000)
-#define ETA_COMMON_FLASH_BASE_ECM3531 (0x01000000)
-#define ETA_COMMON_FLASH_SIZE_ECM3531 \
-	(ETA_COMMON_FLASH_MAX_ECM3531 - ETA_COMMON_FLASH_BASE_ECM3531)
+#define ETA_FLASH_MAX_ECM3531           ETA_COMMON_FLASH_MAX
+#define ETA_FLASH_BASE_ECM3531          ETA_COMMON_FLASH_BASE
+#define ETA_FLASH_SIZE_ECM3531          ETA_COMMON_FLASH_SIZE
 
-#define ETA_COMMON_FLASH_PAGE_SIZE_ECM3531 (4096)
-#define ETA_COMMON_FLASH_NUM_PAGES_ECM3531 \
-	(ETA_COMMON_FLASH_SIZE_ECM3531 / ETA_COMMON_FLASH_PAGE_SIZE_ECM3531)
+#define ETA_FLASH_PAGE_SIZE_ECM3531     ETA_COMMON_FLASH_PAGE_SIZE
+#define ETA_FLASH_NUM_PAGES_ECM3531     ETA_COMMON_FLASH_NUM_PAGES
 
 /**
  * ETA flash bank info from probe.
@@ -129,16 +117,19 @@ struct etacorem3_flash_bank {
 	uint32_t bootrom_erase_entry;	/**< BootROM_flash_erase */
 	uint32_t bootrom_write_entry;	/**< BootROM_flash_program */
 	uint32_t bootrom_read_entry;	/**< BootROM_flash_read */
-	uint32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta, bootrom_version-branchtable
-					 *parts. */
+	uint32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta, 3-ECM3531 */
 	uint32_t branchtable_start;	/**< Start address of branch table. */
 
 	/* Timeouts */
+
 	uint32_t time_per_page_erase;
 	uint32_t timeout_erase;
 	uint32_t timeout_program;
+
 	/* Flags and Semaphores */
-	uint32_t info_semaphore;
+
+	uint32_t info_semaphore;/**< option passed over to target driver call. */
+	uint32_t target_buffer;	/**< user specified target buffer address. */
 	bool probed;	/**< Flash bank has been probed. */
 };
 
@@ -301,14 +292,12 @@ int find_branch_table(struct flash_bank *bank, uint32_t *version)
 			/** @todo change to struct to avoid flogging. */
 			uint32_t startup_head[6];
 #if 0
-			0x43415445,			/**< string  "ETACOMPUTE" zero terminated.
-							 * */
+			0x43415445,			/**< "ETACOMPUTE" zero terminated. */
 			0x55504d4f,
 			0x00004554,
 			0x00000000,			/**< 1 byte revsion, 3 byte part number. */
 			0x00000000,			/**< ptr to branch table. */
-			0x00000000			/**< on an FPGA this is non zero build date
-							 * of bit file. */
+			0x00000000			/**< FPGA: non zero bitfile build date. */
 #endif
 			retval = target_read_u32_array(bank->target, romptr, 6, &startup_head[0]);
 			if ((retval == ERROR_OK) && (startup_head[1] == branchtable_key[1]) && \
@@ -787,7 +776,6 @@ static int etacorem3_write(struct flash_bank *bank,
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
 	uint32_t address = bank->base + offset;
 	uint32_t sram_buffer;
-	uint32_t maxbuffer;
 	uint32_t thisrun_count;
 	struct working_area *workarea = NULL, *paramarea = NULL;
 	struct working_area *bufferarea = NULL, *stackarea = NULL;
@@ -816,21 +804,25 @@ static int etacorem3_write(struct flash_bank *bank,
 	 * Chip Bootrom can only write 512 bytes at a time.
 	 * Target side code will block the write into 512 bytes.
 	 */
-	maxbuffer = SRAM_BUFFER_SIZE;
+	uint32_t maxbuffer = SRAM_BUFFER_SIZE;
 
-	/*
-	 * Allocate space on target for write buffer.
-	 */
-	retval = target_alloc_working_area(bank->target,
-			maxbuffer, &bufferarea);
-	LOG_DEBUG("bufferarea address: " TARGET_ADDR_FMT ", retval %d.", bufferarea->address,
-		retval);
-	if (retval != ERROR_OK) {
-		LOG_ERROR("No buffer area available.");
-		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
-		goto err_alloc_code;
+	sram_buffer = etacorem3_bank->target_buffer;
+	if (sram_buffer == 0) {
+		/*
+		 * Allocate space on target for write buffer.
+		 */
+		retval = target_alloc_working_area(bank->target,
+				maxbuffer, &bufferarea);
+		LOG_DEBUG("bufferarea address: " TARGET_ADDR_FMT ", retval %d.",
+			bufferarea->address,
+			retval);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("No buffer area available.");
+			retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+			goto err_alloc_code;
+		}
+		sram_buffer = bufferarea->address;
 	}
-	sram_buffer = bufferarea->address;
 
 	/* R0 and SP for algorithm. */
 	struct reg_param reg_params[2];
@@ -1006,17 +998,30 @@ static int etacorem3_write_info(struct flash_bank *bank,
 	if (retval != ERROR_OK)
 		return retval;
 
+	etacorem3_bank->target_buffer = 0;
 	etacorem3_bank->info_semaphore = 2;
-	etacorem3_write(bank, buffer, offset, count);
+	retval = etacorem3_write(bank, buffer, offset, count);
 	etacorem3_bank->info_semaphore = 0;
 
 	return retval;
 }
-/** Read into to target buffer. */
-static int etacorem3_read_info(struct flash_bank *bank,
+
+/** Write info from target buffer. */
+static int etacorem3_write_info_target(struct flash_bank *bank,
 	uint32_t target_buffer, uint32_t offset, uint32_t count)
 {
-	return ERROR_OK;
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+
+	int retval = target_ready(bank);
+	if (retval != ERROR_OK)
+		return retval;
+
+	etacorem3_bank->target_buffer = target_buffer;
+	etacorem3_bank->info_semaphore = 2;
+	retval = etacorem3_write(bank, 0, offset, count);
+	etacorem3_bank->info_semaphore = 0;
+	etacorem3_bank->target_buffer = 0;
+	return retval;
 }
 
 /**
@@ -1056,19 +1061,23 @@ static int etacorem3_read_buffer(struct flash_bank *bank, target_addr_t address,
 		return retval;
 	}
 
-	/*
-	 * Allocate space on target for read buffer.
-	 */
-	retval = target_alloc_working_area(bank->target,
-			ETA_COMMON_FLASH_PAGE_SIZE_ECM3531, &bufferarea);
-	LOG_DEBUG("bufferarea address: " TARGET_ADDR_FMT ", retval %d.", bufferarea->address,
-		retval);
-	if (retval != ERROR_OK) {
-		LOG_ERROR("No buffer area available.");
-		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
-		goto err_alloc_code;
+	sram_buffer = etacorem3_bank->target_buffer;
+	if (sram_buffer == 0) {
+		/*
+		 * Allocate space on target for read buffer.
+		 */
+		retval = target_alloc_working_area(bank->target,
+				ETA_FLASH_PAGE_SIZE_ECM3531, &bufferarea);
+		LOG_DEBUG("bufferarea address: " TARGET_ADDR_FMT ", retval %d.",
+			bufferarea->address,
+			retval);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("No buffer area available.");
+			retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+			goto err_alloc_code;
+		}
+		sram_buffer = bufferarea->address;
 	}
-	sram_buffer = bufferarea->address;
 
 	/* R0 and SP for algorithm. */
 	struct reg_param reg_params[2];
@@ -1117,8 +1126,8 @@ static int etacorem3_read_buffer(struct flash_bank *bank, target_addr_t address,
 	}
 
 	while (count > 0) {
-		if (count > ETA_COMMON_FLASH_PAGE_SIZE_ECM3531)
-			thisrun_count = ETA_COMMON_FLASH_PAGE_SIZE_ECM3531;
+		if (count > ETA_FLASH_PAGE_SIZE_ECM3531)
+			thisrun_count = ETA_FLASH_PAGE_SIZE_ECM3531;
 		else
 			thisrun_count = count;
 
@@ -1228,9 +1237,31 @@ static int etacorem3_read_info_buffer(struct flash_bank *bank, target_addr_t add
 	uint32_t count, uint8_t *buffer)
 {
 	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+
+	etacorem3_bank->target_buffer = 0;
 	etacorem3_bank->info_semaphore = 2;
 	int retval = etacorem3_read_buffer(bank, address, count, buffer);
 	etacorem3_bank->info_semaphore = 0;
+	return retval;
+}
+
+/** Read info into target buffer. */
+static int etacorem3_read_info_target(struct flash_bank *bank,
+	uint32_t target_buffer, uint32_t offset, uint32_t count)
+{
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+
+	int retval = target_ready(bank);
+	if (retval != ERROR_OK)
+		return retval;
+
+	uint32_t address = bank->base + offset;
+	etacorem3_bank->target_buffer = target_buffer;
+	etacorem3_bank->info_semaphore = 2;
+	retval = etacorem3_read_buffer(bank, address, count, NULL);
+	etacorem3_bank->info_semaphore = 0;
+	etacorem3_bank->target_buffer = 0;
+
 	return retval;
 }
 
@@ -1245,8 +1276,7 @@ static int etacorem3_read_info_buffer(struct flash_bank *bank, target_addr_t add
 static int etacorem3_protect(struct flash_bank *bank, int set, int first, int last)
 {
 	/*
-	 * Can't protect/unprotect on the etacorem3.
-	 * Initialized to unprotected.
+	 * Can't protect/unprotect on ECM35xx parts.
 	 */
 	LOG_WARNING("Cannot protect/unprotect flash.");
 	return ERROR_OK;
@@ -1261,9 +1291,9 @@ static int etacorem3_protect(struct flash_bank *bank, int set, int first, int la
 static int etacorem3_protect_check(struct flash_bank *bank)
 {
 	/*
-	* sectors are always unprotected.
-	* set at initialization.
-	*/
+	 * sectors are always unprotected.
+	 * set at initialization.
+	 */
 	return ERROR_OK;
 }
 
@@ -1285,12 +1315,18 @@ static int etacorem3_probe(struct flash_bank *bank)
 		LOG_DEBUG("Probing part.");
 
 	/* Check bootrom version, get_variant sets default, no errors. */
-	etacorem3_bank->pagesize = ETA_COMMON_FLASH_PAGE_SIZE_ECM3531;
-	etacorem3_bank->magic_address = MAGIC_ADDR_ECM3501;
+	etacorem3_bank->pagesize = ETA_COMMON_FLASH_PAGE_SIZE;
+	etacorem3_bank->magic_address = MAGIC_ADDR_ECM35xx;
+	etacorem3_bank->info_semaphore = 0;
+	etacorem3_bank->target_buffer = 0;
 
 	etacorem3_bank->bootrom_version = get_variant(bank);
-	/* Load call addresses from version of bootrom found.
-	 * ECM3501 */
+
+	/*
+	 * Load call addresses from version of bootrom found.
+	 */
+
+	/* ECM3501 */
 	if (etacorem3_bank->bootrom_version == BOOTROM_VERSION_ECM3501) {
 		etacorem3_bank->target_name = "ECM3501";
 		etacorem3_bank->bootrom_erase_entry = BOOTROM_FLASH_ERASE_ECM3501;
@@ -1299,10 +1335,10 @@ static int etacorem3_probe(struct flash_bank *bank)
 		etacorem3_bank->timeout_program = TIMEOUT_PROGRAM_ECM3501;
 		etacorem3_bank->time_per_page_erase = TIME_PER_PAGE_ERASE_ECM3501;
 		/* Load for ECM3501. */
-		etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_ECM3501;
-		etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_ECM3501;
-		etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_ECM3501;
-		etacorem3_bank->flash_max = ETA_COMMON_FLASH_MAX_ECM3501;
+		etacorem3_bank->sram_base = ETA_SRAM_BASE_ECM3501;
+		etacorem3_bank->sram_max = ETA_SRAM_MAX_ECM3501;
+		etacorem3_bank->flash_base = ETA_FLASH_BASE_ECM3501;
+		etacorem3_bank->flash_max = ETA_FLASH_MAX_ECM3501;
 
 	} else if (etacorem3_bank->bootrom_version == BOOTROM_VERSION_ECM3501_FPGA) {
 		etacorem3_bank->target_name = "ECM3501 FPGA";
@@ -1312,10 +1348,10 @@ static int etacorem3_probe(struct flash_bank *bank)
 		etacorem3_bank->timeout_program = TIMEOUT_PROGRAM_ECM3501_FPGA;
 		etacorem3_bank->time_per_page_erase = 0;
 		/* Load for ECM3501. */
-		etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_ECM3501;
-		etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_ECM3501;
-		etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_ECM3501;
-		etacorem3_bank->flash_max = ETA_COMMON_FLASH_MAX_ECM3501;
+		etacorem3_bank->sram_base = ETA_SRAM_BASE_ECM3501;
+		etacorem3_bank->sram_max = ETA_SRAM_MAX_ECM3501;
+		etacorem3_bank->flash_base = ETA_FLASH_BASE_ECM3501;
+		etacorem3_bank->flash_max = ETA_FLASH_MAX_ECM3501;
 
 	} else if (etacorem3_bank->bootrom_version == BOOTROM_VERSION_M3ETA) {
 		etacorem3_bank->target_name = "M3ETA";
@@ -1326,14 +1362,14 @@ static int etacorem3_probe(struct flash_bank *bank)
 		etacorem3_bank->magic_address = MAGIC_ADDR_M3ETA;
 		etacorem3_bank->time_per_page_erase = 0;
 		/* Load for M3ETA. */
-		etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_M3ETA;
-		etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_M3ETA;
-		etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_M3ETA;
-		etacorem3_bank->flash_max = ETA_COMMON_FLASH_MAX_M3ETA;
+		etacorem3_bank->sram_base = ETA_SRAM_BASE_M3ETA;
+		etacorem3_bank->sram_max = ETA_SRAM_MAX_M3ETA;
+		etacorem3_bank->flash_base = ETA_FLASH_BASE_M3ETA;
+		etacorem3_bank->flash_max = ETA_FLASH_MAX_M3ETA;
 		/*
-		* Parts with branch tables:
+		 * Parts with branch tables:
 		 * ECM3531
-		*/
+		 */
 	} else if (etacorem3_bank->bootrom_version == BOOTROM_VERSION_ECM3531) {
 		etacorem3_bank->target_name = "ECM3531";
 		if (etacorem3_bank->branchtable_start != 0) {
@@ -1352,10 +1388,10 @@ static int etacorem3_probe(struct flash_bank *bank)
 		/* Shared Chip/FPGA, so it needs slower chip value. */
 		etacorem3_bank->time_per_page_erase = TIME_PER_PAGE_ERASE_ECM3501;
 		/* Load for ECM3501. */
-		etacorem3_bank->sram_base = ETA_COMMON_SRAM_BASE_ECM3501;
-		etacorem3_bank->sram_max = ETA_COMMON_SRAM_MAX_ECM3501;
-		etacorem3_bank->flash_base = ETA_COMMON_FLASH_BASE_ECM3501;
-		etacorem3_bank->flash_max = ETA_COMMON_FLASH_MAX_ECM3501;
+		etacorem3_bank->sram_base = ETA_SRAM_BASE_ECM3501;
+		etacorem3_bank->sram_max = ETA_SRAM_MAX_ECM3501;
+		etacorem3_bank->flash_base = ETA_FLASH_BASE_ECM3501;
+		etacorem3_bank->flash_max = ETA_FLASH_MAX_ECM3501;
 	}
 	/* Do a size test. */
 	etacorem3_bank->sram_size  = get_memory_size(bank,
@@ -1435,8 +1471,7 @@ static int get_etacorem3_info(struct flash_bank *bank, char *buf, int buf_size)
 			"\n\tStart Flash: 0x%08X, Sram: 0x%08X.",
 			etacorem3_bank->target_name,
 			(etacorem3_bank->flash_size/1024),
-			(etacorem3_bank->sram_size/1024)
-			,
+			(etacorem3_bank->sram_size/1024),
 			etacorem3_bank->flash_base,
 			etacorem3_bank->sram_base
 			);
@@ -1495,10 +1530,9 @@ COMMAND_HANDLER(handle_etacorem3_mass_erase_command)
 		/* set all sectors as erased */
 		for (int i = 0; i < bank->num_sectors; i++)
 			bank->sectors[i].is_erased = 1;
-
-		command_print(CMD_CTX, "etacorem3 mass erase complete");
+		command_print(CMD_CTX, "etacorem3 mass erase complete.");
 	} else
-		command_print(CMD_CTX, "etacorem3 mass erase failed");
+		command_print(CMD_CTX, "etacorem3 mass erase failed.");
 
 	return ERROR_OK;
 }
@@ -1525,28 +1559,30 @@ COMMAND_HANDLER(handle_etacorem3_erase_info_command)
 }
 
 /**
- * @brief write info space. [ECM3531]
+ * @brief write info space from target buffer. [ECM3531]
  * @param etacompute handle_write_info_command
  * @returns
  *
  */
-COMMAND_HANDLER(handle_etacorem3_write_info_command)
+COMMAND_HANDLER(handle_etacorem3_write_info_target_command)
 {
 	struct flash_bank *bank;
-	uint32_t target_buffer, offset, count;
+	/* initialize to default values. */
+	uint32_t target_buffer = DEFAULT_TARGET_BUFFER;
+	uint32_t offset = 0, count = 0;
 
-	if (CMD_ARGC < 4)
+	if (CMD_ARGC < 1 || CMD_ARGC > 4)
 		return ERROR_COMMAND_SYNTAX_ERROR;
-
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], target_buffer);
-	if (target_buffer == 0)
-		target_buffer = DEFAULT_TARGET_BUFFER;
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], offset);
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[3], count);
+	if (CMD_ARGC > 1)
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], target_buffer);
+	if (CMD_ARGC > 2)
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], offset);
+	if (CMD_ARGC > 3)
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[3], count);
 
 	CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
-	uint8_t *buffer = 0;
-	etacorem3_write_info(bank, buffer, offset, count);
+
+	etacorem3_write_info_target(bank, target_buffer, offset, count);
 
 	return ERROR_OK;
 }
@@ -1560,19 +1596,16 @@ COMMAND_HANDLER(handle_etacorem3_write_info_image_command)
 	if (CMD_ARGC < 1 || CMD_ARGC > 3)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	command_print(CMD_CTX, "Step 0 %d:%s:", CMD_ARGC, CMD_ARGV[0]);
 
-	if (CMD_ARGC > 1) {
-		command_print(CMD_CTX, ":%s:", CMD_ARGV[1]);
+	if (CMD_ARGC > 1)
 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], address);
-	} else
-		address = 0x01000000;
+	else
+		address = ETA_COMMON_FLASH_BASE;
 
-	if (CMD_ARGC > 2) {
-		command_print(CMD_CTX, ":%s:", CMD_ARGV[2]);
+	if (CMD_ARGC > 2)
 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], size);
-	} else
-		size = 4096;
+	else
+		size = ETA_COMMON_FLASH_PAGE_SIZE;
 
 	struct flash_bank *bank;
 	struct target *target = get_current_target(CMD_CTX);
@@ -1673,42 +1706,37 @@ COMMAND_HANDLER(handle_etacorem3_dump_info_image_command)
 	struct fileio *fileio;
 	uint8_t *buffer;
 	target_addr_t address, size;
-	struct target *target = get_current_target(CMD_CTX);
 
 	if (CMD_ARGC < 1 || CMD_ARGC > 3)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	command_print(CMD_CTX, "Step 0 %d:%s:", CMD_ARGC, CMD_ARGV[0]);
-
-	if (CMD_ARGC > 1) {
-		command_print(CMD_CTX, ":%s:", CMD_ARGV[1]);
+	if (CMD_ARGC > 1)
 		COMMAND_PARSE_NUMBER(u64, CMD_ARGV[1], address);
-	} else
-		address = 0x01000000;
+	else
+		address = ETA_COMMON_FLASH_BASE;
 
-	if (CMD_ARGC > 2) {
-		command_print(CMD_CTX, ":%s:", CMD_ARGV[2]);
+	if (CMD_ARGC > 2)
 		COMMAND_PARSE_NUMBER(u64, CMD_ARGV[2], size);
-	} else
-		size = 4096;
+	else
+		size = ETA_COMMON_FLASH_PAGE_SIZE;
 
 	struct flash_bank *bank;
+	struct target *target = get_current_target(CMD_CTX);
 	int retval = get_flash_bank_by_addr(target, address, true, &bank);
 	if (retval != ERROR_OK)
 		return retval;
 
-	uint32_t buf_size = (size > 4096) ? 4096 : size;
+	uint32_t buf_size = \
+			(size > ETA_COMMON_FLASH_PAGE_SIZE) ? ETA_COMMON_FLASH_PAGE_SIZE : size;
 	buffer = malloc(buf_size);
 	if (!buffer)
 		return ERROR_FAIL;
-	command_print(CMD_CTX, "Step 2");
 
 	retval = fileio_open(&fileio, CMD_ARGV[0], FILEIO_WRITE, FILEIO_BINARY);
 	if (retval != ERROR_OK) {
 		free(buffer);
 		return retval;
 	}
-	command_print(CMD_CTX, "Step 3");
 
 	struct duration bench;
 	duration_start(&bench);
@@ -1748,28 +1776,30 @@ COMMAND_HANDLER(handle_etacorem3_dump_info_image_command)
 }
 
 /**
- * @brief read info space. [ECM3531]
+ * @brief read info space to target buffer. [ECM3531]
  * @param etacompute handle_read_info_command
  * @returns
- *
+ * @note ARGV 0 is bank number, and ARGC is 1 when set.
  */
-COMMAND_HANDLER(handle_etacorem3_read_info_command)
+COMMAND_HANDLER(handle_etacorem3_read_info_target_command)
 {
 	struct flash_bank *bank;
-	uint32_t target_buffer, offset, count;
+	/* initialize to default values. */
+	uint32_t target_buffer = DEFAULT_TARGET_BUFFER;
+	uint32_t offset = 0, count = 0;
 
-	if (CMD_ARGC < 4)
+	if (CMD_ARGC < 1 || CMD_ARGC > 4)
 		return ERROR_COMMAND_SYNTAX_ERROR;
-
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], target_buffer);
-	if (target_buffer == 0)
-		target_buffer = DEFAULT_TARGET_BUFFER;
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], offset);
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[3], count);
+	if (CMD_ARGC > 1)
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], target_buffer);
+	if (CMD_ARGC > 2)
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], offset);
+	if (CMD_ARGC > 3)
+		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[3], count);
 
 	CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
 
-	etacorem3_read_info(bank, target_buffer, offset, count);
+	etacorem3_read_info_target(bank, target_buffer, offset, count);
 
 	return ERROR_OK;
 }
@@ -1795,20 +1825,20 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 		.help = "Erase info space. [ECM3531]",
 	},
 	{
-		.name = "write_info",
-		.handler = handle_etacorem3_write_info_command,
+		.name = "write_info_target",
+		.handler = handle_etacorem3_write_info_target_command,
 		.mode = COMMAND_EXEC,
 		.usage = "<bank> <target-buffer> <offset> <count>",
 		.help =
-			"Write info space in 32 bit words. [ECM3531]",
+			"Write info space from target buffer. [ECM3531]",
 	},
 	{
-		.name = "read_info",
-		.handler = handle_etacorem3_read_info_command,
+		.name = "read_info_target",
+		.handler = handle_etacorem3_read_info_target_command,
 		.mode = COMMAND_EXEC,
 		.usage = "<bank> <target-buffer> <offset> <count>",
 		.help =
-			"Read info space in 32 bit words. [ECM3531]",
+			"Read info space to sram target buffer. [ECM3531]",
 	},
 	{
 		.name = "dump_info_image",
