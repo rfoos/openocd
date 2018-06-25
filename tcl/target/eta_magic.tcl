@@ -15,6 +15,11 @@ proc setmagic  { } {
     echo "Magic Bits Set"
 }
 
+proc showmagic { } {
+	echo "Show Magic Bits"
+	mdw 0x1001FFF0  4
+}
+
 proc clearmagic { } {
     mww 0x1001FFF0 0 4
     echo "Magic Bits Cleared"
