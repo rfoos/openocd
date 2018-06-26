@@ -149,6 +149,7 @@ struct etacorem3_flash_bank {
  * Global storage for driver.
  */
 
+#if 0
 /** Magic numbers loaded into SRAM before BootROM call. */
 static const uint32_t magic_numbers[] = {
 	0xc001c0de,
@@ -156,6 +157,7 @@ static const uint32_t magic_numbers[] = {
 	0xdeadbeef,
 	0xc369a517,
 };
+#endif
 
 /**
  *  Bootrom Branch Table Offsets
@@ -242,6 +244,7 @@ static int target_read_u32_array(struct target *target, target_addr_t address,
 	return retval;
 }
 
+#if 0
 /**
  * Set magic numbers in target sram.
  * @param bank information.
@@ -255,6 +258,23 @@ static int set_magic_numbers(struct flash_bank *bank)
 			(sizeof(magic_numbers)/sizeof(uint32_t)), magic_numbers);
 	return retval;
 }
+
+/**
+ * Clear magic numbers in target sram.
+ * @param bank information.
+ * @returns status of write buffer.
+ */
+static int clear_magic_numbers(struct flash_bank *bank)
+{
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+    const uint32_t \
+        clear_magic[(sizeof(magic_numbers)/sizeof(uint32_t))] = {0,};
+	/* Use endian neutral call. */
+	int retval = target_write_u32_array(bank->target, etacorem3_bank->magic_address,
+			(sizeof(magic_numbers)/sizeof(uint32_t)), clear_magic);
+	return retval;
+}
+#endif
 
 /*
  * Timeouts.
@@ -495,14 +515,16 @@ static int common_erase_run(struct flash_bank *bank,
 	struct working_area *workarea = NULL, *paramarea = NULL;
 	struct working_area *stackarea = NULL;
 
+#if 0
 	/*
-	 * Load Magic numbers required for bootrom helper function execution.
+	 * Clear magic numbers.
 	 */
-	retval = set_magic_numbers(bank);
+	retval = clear_magic_numbers(bank);
 	if (retval != ERROR_OK) {
-		CHECK_STATUS(retval, "error writing magic numbers to target.");
+		CHECK_STATUS(retval, "error clearing target magic numbers.");
 		return retval;
 	}
+#endif
 
 	struct reg_param reg_params[2];
 	struct armv7m_algorithm armv7m_algo;
@@ -790,14 +812,16 @@ static int etacorem3_write(struct flash_bank *bank,
 		return ERROR_FAIL;
 	}
 
+#if 0
 	/*
-	 * Load Magic numbers required for bootrom help function execution.
+	 * Clear Magic Numbers before write.
 	 */
-	retval = set_magic_numbers(bank);
+	retval = clear_magic_numbers(bank);
 	if (retval != ERROR_OK) {
-		CHECK_STATUS(retval, "error writing magic numbers to target.");
+		CHECK_STATUS(retval, "error clearing target magic numbers.");
 		return retval;
 	}
+#endif
 
 	/*
 	 * Max buffer size for this device...
@@ -981,6 +1005,19 @@ err_alloc_code:
 	if (bufferarea != NULL)
 		target_free_working_area(bank->target, bufferarea);
 
+#if 0
+    if (retval == ERROR_OK) {
+        /*
+         * Set Magic Numbers to run a program.
+         */
+        retval = set_magic_numbers(bank);
+        if (retval != ERROR_OK) {
+            CHECK_STATUS(retval, "error setting target magic numbers.");
+            return retval;
+        }
+    }
+#endif
+
 	return retval;
 }
 /** Write info space [ECM3531].
@@ -1052,14 +1089,16 @@ static int etacorem3_read_buffer(struct flash_bank *bank, target_addr_t address,
 		return ERROR_FAIL;
 	}
 
+#if 0
 	/*
-	 * Load Magic numbers required for bootrom help function execution.
+	 * Clear Magic numbers required for bootrom help function execution.
 	 */
-	retval = set_magic_numbers(bank);
+	retval = clear_magic_numbers(bank);
 	if (retval != ERROR_OK) {
 		CHECK_STATUS(retval, "error writing magic numbers to target.");
 		return retval;
 	}
+#endif
 
 	sram_buffer = etacorem3_bank->target_buffer;
 	if (sram_buffer == 0) {
