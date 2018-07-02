@@ -1,8 +1,10 @@
 #!/bin/bash
 
+CORES=$(grep -c processor /proc/cpuinfo)
+
 # For debugging: create elf files, set sram stack at 0x10001000, set $r0=0
 # script read.cfg
-make -j -l16 -C contrib/loaders/flash/etacorem3 $*
-make -C contrib/loaders/flash/etacorem3 read.elf write.elf erase.elf $*
+make -j -l${CORES} -C contrib/loaders/flash/etacorem3 $*
+make -j -l${CORES} -C contrib/loaders/flash/etacorem3 read.elf write.elf erase.elf $*
 # includes above .inc files
-make -j -l16 $*
+make -j -l${CORES} $*
