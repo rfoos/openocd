@@ -7,4 +7,9 @@ CORES=$(grep -c processor /proc/cpuinfo)
 make -j -l${CORES} -C contrib/loaders/flash/etacorem3 $*
 make -j -l${CORES} -C contrib/loaders/flash/etacorem3 read.elf write.elf erase.elf $*
 # includes above .inc files
-make -j -l${CORES} $*
+if [ -n "$*" ]
+then
+	make -j -l${CORES} $*
+else
+	make -j -l${CORES} DESTDIR=/home/rick/master-eta install
+fi
