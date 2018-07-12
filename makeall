@@ -1,6 +1,7 @@
 #!/bin/bash
 
 CORES=$(grep -c processor /proc/cpuinfo)
+CURBRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # For debugging: create elf files, set sram stack at 0x10001000, set $r0=0
 # script read.cfg
@@ -11,5 +12,5 @@ if [ -n "$*" ]
 then
 	make -j -l${CORES} $*
 else
-	make -j -l${CORES} DESTDIR=/home/rick/master-eta install
+	make -j -l${CORES} DESTDIR=${HOME}/${CURBRANCH} install
 fi
