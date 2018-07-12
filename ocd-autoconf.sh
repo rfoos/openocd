@@ -28,5 +28,7 @@ sudo apt-get -y install openssh-server build-essential gcc g++ git make \
     autoconf autotools-dev gettext texinfo texlive flex doxygen \
     graphviz libusb-dev libftdi1-dev \
     dos2unix libusb-1.0-0-dev libusb-1.0-0 libftdi1 libftdi1-2 \
-    libhidapi-dev libhidapi-hidraw0 libhidapi-libusb0
+    libhidapi-dev libhidapi-hidraw0 libhidapi-libusb0 \
+    binutils-arm-none-eabi gcc-arm-none-eabi gdb-multiarch \
+    libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
     
