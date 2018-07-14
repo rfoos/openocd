@@ -5,8 +5,12 @@ CURBRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # For debugging: create elf files, set sram stack at 0x10001000, set $r0=0
 # script read.cfg
-make -j -l${CORES} -C contrib/loaders/flash/etacorem3 $*
-make -j -l${CORES} -C contrib/loaders/flash/etacorem3 read.elf write.elf erase.elf $*
+if [ -d contrib/loaders/flash/etacorem3 ]
+then
+	make -j -l${CORES} -C contrib/loaders/flash/etacorem3 $*
+	make -j -l${CORES} -C contrib/loaders/flash/etacorem3 \
+		read.elf write.elf erase.elf $*
+fi
 # includes above .inc files
 if [ -n "$*" ]
 then
