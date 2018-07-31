@@ -107,6 +107,7 @@ extern struct target_type or1k_target;
 extern struct target_type quark_x10xx_target;
 extern struct target_type quark_d20xx_target;
 extern struct target_type stm8_target;
+extern struct target_type riscv_target;
 
 static struct target_type *target_types[] = {
 	&arm7tdmi_target,
@@ -139,6 +140,7 @@ static struct target_type *target_types[] = {
 	&quark_x10xx_target,
 	&quark_d20xx_target,
 	&stm8_target,
+	&riscv_target,
 #if BUILD_TARGET64
 	&aarch64_target,
 #endif
@@ -4131,8 +4133,9 @@ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc,
 	 * argv[3] = memory address
 	 * argv[4] = count of times to read
 	 */
+
 	if (argc < 4 || argc > 5) {
-		Jim_WrongNumArgs(interp, 1, argv, "varname width addr nelems [phys]");
+		Jim_WrongNumArgs(interp, 0, argv, "varname width addr nelems [phys]");
 		return JIM_ERR;
 	}
 	varname = Jim_GetString(argv[0], &len);
