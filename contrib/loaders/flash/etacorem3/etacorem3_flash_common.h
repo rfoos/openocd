@@ -18,11 +18,14 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
 
 #ifndef _ETA_FLASH_COMMON_H
 #define _ETA_FLASH_COMMON_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #ifndef IOREG
 #define IOREG(x)                                                              \
@@ -64,19 +67,22 @@
 
 /* ECM3531 Flash timing arguments. */
 
-#define BOOTROM_FLASH_TNVS_COUNT_SPACE   (0x10)
-#define BOOTROM_FLASH_TRE_COUNT_SPACE    (0x28)
-#define BOOTROM_FLASH_TNVH_COUNT_SPACE   (0x300)
-#define BOOTROM_FLASH_TRCV_COUNT_SPACE   (0x30)
-#define BOOTROM_FLASH_TERASE_COUNT_SPACE (0x30)
-#define BOOTROM_FLASH_TPGS_COUNT_SPACE   (0x28)
-#define BOOTROM_FLASH_TPROG_COUNT_SPACE  (0x50)
+#define BOOTROM_FLASH_TNVS_COUNT_SPACE   (0x6)
+#define BOOTROM_FLASH_TRE_COUNT_SPACE    (0x186A0)
+#define BOOTROM_FLASH_TNVH_COUNT_SPACE   (0x6)
+#define BOOTROM_FLASH_TNVH1_COUNT_SPACE  (0x6E)
+#define BOOTROM_FLASH_TRCV_COUNT_SPACE   (0xB)
+#define BOOTROM_FLASH_TERASE_COUNT_SPACE (0x16000)
+#define BOOTROM_FLASH_TPGS_COUNT_SPACE   (0xB)
+#define BOOTROM_FLASH_TPROG_COUNT_SPACE  (0xC)
+#define BOOTROM_FLASH_TME_COUNT_SPACE    (0x16000)
 
 /* ECM3501 Flash timing arguments. */
 
 #define BOOTROM_FLASH_TNVS_COUNT   (0x10)
 #define BOOTROM_FLASH_TRE_COUNT    (0x28)
 #define BOOTROM_FLASH_TNVH_COUNT   (0x300)
+#define BOOTROM_FLASH_TNVH1_COUNT  (0x3000)
 #define BOOTROM_FLASH_TRCV_COUNT   (0x30)
 #define BOOTROM_FLASH_TERASE_COUNT (0x800000)
 #define BOOTROM_FLASH_TPGS_COUNT   (0x38)
@@ -194,15 +200,15 @@ typedef struct {
 #define ETA_CSP_FLASH_MASS_ERASE_SPACE(SPACE)  \
 	BootROM_flash_erase_space(ETA_COMMON_FLASH_BASE, MASS_ERASE, SPACE, \
 		BOOTROM_FLASH_TNVS_COUNT_SPACE, \
-		BOOTROM_FLASH_TERASE_COUNT_SPACE,                  \
-		BOOTROM_FLASH_TNVH_COUNT_SPACE,                    \
+		BOOTROM_FLASH_TME_COUNT_SPACE,                  \
+		BOOTROM_FLASH_TNVH1_COUNT_SPACE,                    \
 		BOOTROM_FLASH_TRCV_COUNT_SPACE);
 
 #define ETA_CSP_FLASH_MASS_ERASE() \
 	BootROM_flash_erase(ETA_COMMON_FLASH_BASE, MASS_ERASE, \
 		BOOTROM_FLASH_TNVS_COUNT, \
 		BOOTROM_FLASH_TERASE_COUNT,                  \
-		BOOTROM_FLASH_TNVH_COUNT,                    \
+		BOOTROM_FLASH_TNVH1_COUNT,                    \
 		BOOTROM_FLASH_TRCV_COUNT);
 
 #define ETA_CSP_FLASH_PAGE_ERASE_SPACE(ADDR, SPACE)  \
@@ -236,5 +242,9 @@ typedef struct {
 
 #define ETA_CSP_FLASH_READ(ADDR, SPACE, RESULT)  \
 	BootROM_flash_read(ADDR, SPACE, RESULT);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
