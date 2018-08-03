@@ -17,4 +17,5 @@ then
 	make -j -l${CORES} $*
 else
 	make -j -l${CORES} DESTDIR=${HOME}/${CURBRANCH} install
+	echo "*** Installed to ${HOME}/${CURBRANCH}"
 fi

@@ -17,17 +17,22 @@ CC_OPTS	+= -ffunction-sections -fdata-sections -g3
 CC_OPTS	+= -DOCD -DPRTCC
 
 LINKER_SCRIPT	:= etacorem3.ld
-LINKER_OPTS	:= --specs=nosys.specs -mcpu=cortex-m3 -mthumb
+LINKER_OPTS	= --specs=nosys.specs -mcpu=cortex-m3 -mthumb
 LINKER_OPTS     += -mlittle-endian -O0 -fmessage-length=0 -fsigned-char
 LINKER_OPTS     += -ffunction-sections -fdata-sections -Wl,--gc-sections
-LINKER_OPTS     += -nostartfiles -nostdlib
-LINKER_OPTS     +=  -Xlinker -Map=$$@.map -g3
+LINKER_OPTS     += -nostartfiles -nostdlib -static
+LINKER_OPTS     +=  -Xlinker -Map="$(basename $@).map" -g3
 
-.INTERMEDIATE: erase.elf write.elf read.elf
+# C source > s source > incs > elves
+SRC := $(wildcard *.c)
+ELVES := $(SRC:.c=.elf)
+EINCS := $(SRC:.c=.inc)
 
-all: erase.inc write.inc read.inc
+.INTERMEDIATE: $(ELVES)
 
-erase.elf write.elf read.elf: etacorem3_flash_common.h
+all: $(EINCS)
+
+$(ELVES) : etacorem3_flash_common.h
 
 %.bin:	%.elf
 	$(OBJCOPY) --verbose -O binary "$<"  "$@"
@@ -36,13 +41,14 @@ erase.elf write.elf read.elf: etacorem3_flash_common.h
 	$(LINKER) $(LINKER_OPTS) -T $(LINKER_SCRIPT) -o "$@" "$<"
 
 %.txt:	%.elf
-	$(CROSS_COMPILE)objdump -S -d "$<" > $@
+	$(CROSS_COMPILE)objdump -S -d "$<" > "$@"
 
 %.inc: %.bin
-	$(BIN2C) < $< > $@
+	$(BIN2C) < "$<" > "$@"
 
 %.s: %.c
 	$(CC) $(CC_OPTS) $(EXTRA_CFLAGS) -S -Wa,-a,-ad -o "$@" "$<"
 
-clean:
-	rm -f *.d *.bin *.elf *.inc *.s *.map *.lst
+clean maintainer-clean:
+	rm -f $(SRC:.c=.d) $(SRC:.c=.s) $(SRC:.c=.map) $(SRC:.c=.lst) $(SRC:.c=.bin) \
+		$(ELVES) $(EINCS)
