@@ -114,6 +114,8 @@ struct etacorem3_flash_bank {
 	uint32_t flash_base;	/**< Flash Start Address. */
 	uint32_t flash_size;	/**< Flash size calculated during probe. */
 	uint32_t flash_max;
+    uint32_t bootrom_load_entry;	/**< BootROM_flash_load */
+	uint32_t bootrom_store_entry;	/**< BootROM_flash_store */
 	uint32_t bootrom_erase_entry;	/**< BootROM_flash_erase */
 	uint32_t bootrom_write_entry;	/**< BootROM_flash_program */
 	uint32_t bootrom_read_entry;	/**< BootROM_flash_read */
@@ -162,14 +164,14 @@ static const uint32_t magic_numbers[] = {
 /**
  *  Bootrom Branch Table Offsets
  */
-#define BRANCHTABLE_FLASH_WS            (00)	/* 0x98 */
-#define BRANCHTABLE_FLASH_LOAD          (04)	/* 0x9C */
-#define BRANCHTABLE_FLASH_STORE         (08)	/* 0xA0 */
-#define BRANCHTABLE_FLASH_VERSION       (12)	/* 0xA4 */
-#define BRANCHTABLE_FLASH_ERASE_REF     (16)	/* 0xA8 */
-#define BRANCHTABLE_FLASH_ERASE         (20)	/* 0xAC */
-#define BRANCHTABLE_FLASH_PROGRAM       (24)	/* 0xB0 */
-#define BRANCHTABLE_FLASH_READ          (28)	/* 0xB4 */
+#define BRANCHTABLE_FLASH_WS            (0x00)	/* 0x98 */
+#define BRANCHTABLE_FLASH_LOAD          (0x04)	/* 0x9C */
+#define BRANCHTABLE_FLASH_STORE         (0x08)	/* 0xA0 */
+#define BRANCHTABLE_FLASH_VERSION       (0x0C)	/* 0xA4 */
+#define BRANCHTABLE_FLASH_ERASE_REF     (0x10)	/* 0xA8 */
+#define BRANCHTABLE_FLASH_ERASE         (0x14)	/* 0xAC */
+#define BRANCHTABLE_FLASH_PROGRAM       (0x18)	/* 0xB0 */
+#define BRANCHTABLE_FLASH_READ          (0x1C)	/* 0xB4 */
 
 /**
  *  Bootrom branch table key.
@@ -434,9 +436,9 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 	if (maxsize == 0)
 		return 0;
 
-	/* The memory scan causes a bus fault. Ignore expected error messages. */
-	int save_debug_level = debug_level;
-	debug_level = LOG_LVL_OUTPUT;
+    /* Ignore expected error messages from breakpoint. */
+    int save_debug_level = debug_level;
+    debug_level = LOG_LVL_OUTPUT;
 
 	/* Read flash size we are testing. 0 - Max flash size, 16k increments. */
 	for (i = 0; i < maxsize; i += increment) {
@@ -445,6 +447,7 @@ static uint32_t get_memory_size(struct flash_bank *bank,
 		if (retval != ERROR_OK)
 			break;
 	}
+
 	/* Restore debug output level. */
 	debug_level = save_debug_level;
 
@@ -499,6 +502,11 @@ static const uint8_t write_sector_code[] = {
 /** Target sram wrapper code for read. */
 static const uint8_t read_sector_code[] = {
 #include "../../../contrib/loaders/flash/etacorem3/read.inc"
+};
+
+/** Target sram wrapper code for read register. */
+static const uint8_t read_reg_code[] = {
+#include "../../../contrib/loaders/flash/etacorem3/readreg.inc"
 };
 
 /*
@@ -588,9 +596,11 @@ static int common_erase_run(struct flash_bank *bank,
 	/* Set the sram parameter address in r0. */
 	buf_set_u32(reg_params[1].value, 0, 32, paramarea->address);
 
-	/* Ignore expected error messages from breakpoint.
-	 * int save_debug_level = debug_level;
-	 * debug_level = LOG_LVL_OUTPUT; */
+#if 0
+    /* Ignore expected error messages from breakpoint. */
+    int save_debug_level = debug_level;
+    debug_level = LOG_LVL_OUTPUT;
+#endif
 
 	/* Run the code. */
 	retval = target_run_algorithm(bank->target,
@@ -599,8 +609,10 @@ static int common_erase_run(struct flash_bank *bank,
 			workarea->address, 0,
 			etacorem3_bank->timeout_erase, &armv7m_algo);
 
-	/* Restore debug output level.
-	 * debug_level = save_debug_level; */
+#if 0
+    /* Restore debug output level. */
+    debug_level = save_debug_level;
+#endif
 
 	/* Read return code from sram parameter area. */
 	uint32_t retvalT;
@@ -955,9 +967,11 @@ static int etacorem3_write(struct flash_bank *bank,
 		/* Set the sram parameter address in r0. */
 		buf_set_u32(reg_params[1].value, 0, 32, paramarea->address);
 
-		/* Ignore expected error messages from breakpoint.
-		 * int save_debug_level = debug_level;
-		 * debug_level = LOG_LVL_OUTPUT; */
+#if 0
+    /* Ignore expected error messages from breakpoint. */
+    int save_debug_level = debug_level;
+    debug_level = LOG_LVL_OUTPUT;
+#endif
 
 		/* Run the code. */
 		retval = target_run_algorithm(bank->target,
@@ -1058,6 +1072,165 @@ static int etacorem3_write_info_target(struct flash_bank *bank,
 	retval = etacorem3_write(bank, 0, offset, count);
 	etacorem3_bank->info_semaphore = 0;
 	etacorem3_bank->target_buffer = 0;
+	return retval;
+}
+static int etacorem3_read_reg(struct flash_bank *bank, uint32_t address)
+{
+	struct etacorem3_flash_bank *etacorem3_bank = bank->driver_priv;
+	struct working_area *workarea = NULL, *paramarea = NULL;
+	struct working_area *stackarea = NULL;
+
+	/* R0 and SP for algorithm. */
+	struct reg_param reg_params[2];
+
+	/*
+	 * Allocate space on target for code.
+	 */
+	int retval = target_alloc_working_area(bank->target,
+			sizeof(read_reg_code), &workarea);
+	LOG_DEBUG("workarea address: " TARGET_ADDR_FMT ", retval %d.", workarea->address, retval);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No working area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+	/*
+	 * Load code on target.
+	 */
+	retval = target_write_buffer(bank->target, workarea->address,
+			sizeof(read_reg_code), read_reg_code);
+	if (retval != ERROR_OK)
+		goto err_alloc_code;
+
+#if 0
+	/*
+	 * Allocate sram parameter area.
+	 */
+	retval = target_alloc_working_area(bank->target,
+			sizeof(eta_read_interface), &paramarea);
+	LOG_DEBUG("parameter address: " TARGET_ADDR_FMT ".", paramarea->address);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No param area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+#endif
+
+	/*
+	 * Allocate stack area.
+	 */
+	retval = target_alloc_working_area(bank->target,
+			SRAM_STACK_SIZE, &stackarea);
+	LOG_DEBUG("stackarea address: " TARGET_ADDR_FMT ".", stackarea->address);
+	if (retval != ERROR_OK) {
+		LOG_ERROR("No stack area available.");
+		retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		goto err_alloc_code;
+	}
+
+#if 0
+    /*
+     * Load SRAM Parameters.
+     */
+    eta_read_interface sramargs = {
+        address,/**< Start address in flash. */
+        thisrun_count,	/**< Length in bytes. */
+        sram_buffer,
+        etacorem3_bank->info_semaphore,	/**< 2 - Info or Normal space */
+        etacorem3_bank->bootrom_read_entry,	/**< bootrom entry point. */
+        etacorem3_bank->bootrom_version,/**< chip or fpga */
+        BREAKPOINT	/**< Return code from bootrom. */
+    };
+
+    retval = target_write_u32_array(bank->target,
+            paramarea->address,
+            (sizeof(eta_read_interface)/sizeof(uint32_t)),
+            (uint32_t *)&sramargs);
+    if (retval != ERROR_OK) {
+        LOG_ERROR("Failed to load sram parameters.");
+        retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+        break;
+    }
+#endif
+
+    struct armv7m_algorithm armv7m_algo;
+
+    armv7m_algo.common_magic = ARMV7M_COMMON_MAGIC;
+    armv7m_algo.core_mode = ARM_MODE_THREAD;
+
+    /* allocate registers sp, and r0. */
+    init_reg_param(&reg_params[0], "sp", 32, PARAM_OUT);
+	init_reg_param(&reg_params[1], "r0", 32, PARAM_IN_OUT);	/* address, value */
+
+    /* Set the sram stack in sp. */
+    buf_set_u32(reg_params[0].value, 0, 32,
+        (stackarea->address + SRAM_STACK_SIZE));
+    /* Set the register address in r0. */
+    buf_set_u32(reg_params[1].value, 0, 32, address);
+
+#if 0
+    /* Ignore expected error messages from breakpoint. */
+    int save_debug_level = debug_level;
+    debug_level = LOG_LVL_OUTPUT;
+#endif
+
+    /* Run the code. */
+    retval = target_run_algorithm(bank->target,
+            0, NULL,
+            ARRAY_SIZE(reg_params), reg_params,
+            workarea->address, 0,
+            etacorem3_bank->timeout_program, &armv7m_algo);
+
+#if 0
+    /* Restore debug output level. */
+    debug_level = save_debug_level;
+#endif
+
+    if (retval != ERROR_OK) {
+        LOG_ERROR(
+            "error executing read register %d, address %d.",
+            retval,
+            address);
+        retval = ERROR_FLASH_OPERATION_FAILED;
+        goto err_run;
+    }
+
+    /* Read value in R0. */
+	uint32_t value = buf_get_u32(reg_params[1].value, 0, 32);
+    LOG_INFO("0x%08X", value);
+
+#if 0
+    /* Read return code from sram parameter area. */
+    uint32_t retvalT;
+    int retval1 = target_read_u32(bank->target,
+            (paramarea->address + offsetof(eta_read_interface, retval)),
+            &retvalT);
+    if ((retval != ERROR_OK) || (retval1 != ERROR_OK) || (retvalT != 0)) {
+        LOG_ERROR(
+            "error executing flash read %d, RC1 %d, TRC %d.",
+            retval,
+            retval1,
+            retvalT);
+        LOG_DEBUG("address: 0x%08lX, count: 0x%08X", address, thisrun_count);
+        retval = ERROR_FLASH_OPERATION_FAILED;
+        goto err_run;
+    }
+#endif
+
+	/* error after register parameters allocated. */
+err_run:
+	for (unsigned i = 0; i < ARRAY_SIZE(reg_params); i++)
+		destroy_reg_param(&reg_params[i]);
+
+	/* error after buffer(s) have been allocated. */
+err_alloc_code:
+	if (workarea != NULL)
+		target_free_working_area(bank->target, workarea);
+	if (paramarea != NULL)
+		target_free_working_area(bank->target, paramarea);
+	if (stackarea != NULL)
+		target_free_working_area(bank->target, stackarea);
+
 	return retval;
 }
 
@@ -1208,11 +1381,11 @@ static int etacorem3_read_buffer(struct flash_bank *bank, target_addr_t address,
 		/* Set the sram parameter address in r0. */
 		buf_set_u32(reg_params[1].value, 0, 32, paramarea->address);
 
-		/*
-		* Ignore expected error messages from breakpoint.
-		 * int save_debug_level = debug_level;
-		 * debug_level = LOG_LVL_OUTPUT
-		*/
+#if 0
+    /* Ignore expected error messages from breakpoint. */
+    int save_debug_level = debug_level;
+    debug_level = LOG_LVL_OUTPUT;
+#endif
 
 		/* Run the code. */
 		retval = target_run_algorithm(bank->target,
@@ -1221,8 +1394,10 @@ static int etacorem3_read_buffer(struct flash_bank *bank, target_addr_t address,
 				workarea->address, 0,
 				etacorem3_bank->timeout_program, &armv7m_algo);
 
-		/* Restore debug output level.
-		 * debug_level = save_debug_level; */
+#if 0
+    /* Restore debug output level. */
+    debug_level = save_debug_level;
+#endif
 
 		/* Read return code from sram parameter area. */
 		uint32_t retvalT;
@@ -1421,6 +1596,12 @@ static int etacorem3_probe(struct flash_bank *bank)
 			target_read_u32(bank->target,
 				etacorem3_bank->branchtable_start + BRANCHTABLE_FLASH_READ,
 				&etacorem3_bank->bootrom_read_entry);
+			target_read_u32(bank->target,
+				etacorem3_bank->branchtable_start + BRANCHTABLE_FLASH_LOAD,
+				&etacorem3_bank->bootrom_load_entry);
+			target_read_u32(bank->target,
+				etacorem3_bank->branchtable_start + BRANCHTABLE_FLASH_STORE,
+				&etacorem3_bank->bootrom_store_entry);
 		}
 		etacorem3_bank->timeout_erase = TIMEOUT_ERASE_ECM3501_FPGA;
 		etacorem3_bank->timeout_program = TIMEOUT_PROGRAM_ECM3501_FPGA;
@@ -1575,7 +1756,33 @@ COMMAND_HANDLER(handle_etacorem3_mass_erase_command)
 
 	return ERROR_OK;
 }
+/**
+ * @brief Read register
+ * @param handle_etacorem3_read_reg_command
+ * @returns OK, Command Syntax, or Failed to read.
+ *
+ */
+COMMAND_HANDLER(handle_etacorem3_read_reg_command)
+{
+	if (CMD_ARGC < 1)
+		return ERROR_COMMAND_SYNTAX_ERROR;
 
+	struct flash_bank *bank;
+	uint32_t retval = CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
+	if (ERROR_OK != retval)
+		return retval;
+
+    uint32_t address;
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], address);
+	command_print(CMD_CTX, "read register address: 0x%08X", address);
+
+	if (etacorem3_read_reg(bank, address) == ERROR_OK) {
+		command_print(CMD_CTX, "etacorem3 read register complete.");
+	} else
+		command_print(CMD_CTX, "etacorem3 read register failed.");
+
+	return ERROR_OK;
+}
 /**
  * @brief Erase info space. [ECM3531]
  * @param handle_etacorem3_erase_info_command
@@ -1739,7 +1946,6 @@ COMMAND_HANDLER(handle_etacorem3_write_info_image_command)
 
 	return retval;
 }
-
 COMMAND_HANDLER(handle_etacorem3_dump_info_image_command)
 {
 	struct fileio *fileio;
@@ -1892,6 +2098,14 @@ static const struct command_registration etacorem3_exec_command_handlers[] = {
 		.mode = COMMAND_EXEC,
 		.usage = "filename address size",
 		.help = "Write info space from file. [ECM3531]",
+	},
+	{
+		.name = "read_reg",
+		.handler = handle_etacorem3_read_reg_command,
+		.mode = COMMAND_EXEC,
+		.usage = "<address>",
+		.help =
+			"Read slow register. (250ms)",
 	},
 	COMMAND_REGISTRATION_DONE
 };
