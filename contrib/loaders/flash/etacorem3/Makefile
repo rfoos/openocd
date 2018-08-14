@@ -13,7 +13,7 @@ OBJDUMP	= $(CROSS_COMPILE)objdump
 
 CC_OPTS	:= -mcpu=cortex-m3 -mthumb -mlittle-endian -O0
 CC_OPTS	+= -fmessage-length=0 -fsigned-char -std=gnu11
-CC_OPTS	+= -ffunction-sections -fdata-sections -g3
+CC_OPTS	+= -ffunction-sections -fdata-sections -g3 -Werror
 CC_OPTS	+= -DOCD -DPRTCC
 
 LINKER_SCRIPT	:= etacorem3.ld

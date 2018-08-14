@@ -32,6 +32,9 @@
 #include <stdint.h>
 #include "etacorem3_flash_common.h"
 
+/** Flash helper functions for load. */
+BootROM_ui32LoadHelper_T BootROM_ui32LoadHelper;
+
 uint32_t value;
 #if OCD
 /**
@@ -41,19 +44,18 @@ uint32_t value;
  * The purpose of sram_param_start is to capture the parameter in R0 and
  * not the typical argc, argv of main.
  */
-int main(uint32_t address)
+int main(uint32_t sram_param_start)
 {
-#if 0
+	eta_loadstore_interface_T *flash_interface;
 	/*
 	 * This can also be built into a standalone executable with startup code.
 	 * The startup code calls =main(0,NULL), and sram_param_start is 0.
 	 * When sram_param_start is 0, the default SRAM_PARAM_START address is used.
 	 */
 	if (sram_param_start == 0)
-		flash_interface = (eta_read_interface *) SRAM_PARAM_START;
+		flash_interface = (eta_loadstore_interface_T *) SRAM_PARAM_START;
 	else
-		flash_interface = (eta_read_interface *) sram_param_start;
-#endif
+		flash_interface = (eta_loadstore_interface_T *) sram_param_start;
 #else
 /**
  * Write up to a sector to flash.
@@ -63,17 +65,38 @@ int main(uint32_t address)
 
 uint32_t main(int argc, char **argv)
 {
-    volatile uint32_t address = 0;
-    if (argc > 1)
-        address = (uint32_t) atoi(argv[1]);
+	eta_loadstore_interface_T *flash_interface = \
+		(eta_loadstore_interface_T *) SRAM_PARAM_START;
 #endif
-    value = IOREG(address);
 
+	uint32_t flash_address = flash_interface->flash_address;
+#if 0
+	uint32_t sram_buffer = (uint32_t *) flash_interface->sram_buffer;
+	/* Allow a default SRAM buffer. */
+	if (sram_buffer == NULL)
+		sram_buffer = (uint32_t *) SRAM_BUFFER_START;
+#endif
+	flash_interface->retval = 1;
+
+	/* Set our Helper function entry point from interface. */
+	if (flash_interface->bootrom_entry_point) {
+		BootROM_ui32LoadHelper = \
+			(BootROM_ui32LoadHelper_T) flash_interface->bootrom_entry_point;
+	} else {
+		flash_interface->retval = 4;
+		goto parameter_error;
+	}
+	/* Mark failure during execution. */
+	flash_interface->retval = 6;
+	/* The load command returns value in R0. */
+	flash_interface->sram_buffer = ETA_CSP_FLASH_LOAD(flash_address);
+	/* Mark successful execution. */
+	flash_interface->retval = 0;
+
+parameter_error:
 #if OCD
-    asm ("    ldr r1, =value");
-    asm ("    ldr r0, [r1]");
 	asm ("    BKPT      #0");
 #else
-	return value;
+	return flash_interface->retval;
 #endif
 }

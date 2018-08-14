@@ -46,7 +46,7 @@ BootROM_flash_erase_space_T BootROM_flash_erase_space;
  */
 int main(uint32_t sram_param_start)
 {
-	eta_erase_interface *flash_interface;
+	eta_erase_interface_T *flash_interface;
 
 	/*
 	 * This can also be built into a standalone executable with startup code.
@@ -54,9 +54,9 @@ int main(uint32_t sram_param_start)
 	 * When sram_param_start is 0, the default SRAM_PARAM_START address is used.
 	 */
 	if (sram_param_start == 0)
-		flash_interface = (eta_erase_interface *) SRAM_PARAM_START;
+		flash_interface = (eta_erase_interface_T *) SRAM_PARAM_START;
 	else
-		flash_interface = (eta_erase_interface *) sram_param_start;
+		flash_interface = (eta_erase_interface_T *) sram_param_start;
 #else
 /**
  * Write up to a sector to flash.
@@ -65,8 +65,8 @@ int main(uint32_t sram_param_start)
  */
 int main(void)
 {
-	eta_erase_interface *flash_interface = \
-		(eta_erase_interface *) SRAM_PARAM_START;
+	eta_erase_interface_T *flash_interface = \
+		(eta_erase_interface_T *) SRAM_PARAM_START;
 #endif
 
 	uint32_t flash_address = flash_interface->flash_address;

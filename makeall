@@ -8,8 +8,6 @@ CURBRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ -d contrib/loaders/flash/etacorem3 ]
 then
 	make -j -l${CORES} -C contrib/loaders/flash/etacorem3 $*
-	make -j -l${CORES} -C contrib/loaders/flash/etacorem3 \
-		read.elf write.elf erase.elf $*
 fi
 # includes above .inc files
 if [ -n "$*" ]

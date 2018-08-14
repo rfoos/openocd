@@ -23,10 +23,6 @@
 #ifndef _ETA_FLASH_COMMON_H
 #define _ETA_FLASH_COMMON_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #ifndef IOREG
 #define IOREG(x)                                                              \
 	(*((volatile uint32_t *)(x)))
@@ -123,9 +119,9 @@ extern "C" {
 #define BOOTROM_LOADER_FLASH_M3ETA      (0x000004F9)
 #define BOOTROM_LOADER_FPGA_M3ETA       (0x00000565)
 #define BOOTROM_FLASH_REF_CELL_ERASE_ECM3501    (0x00000285)
-#define BOOTROM_FLASH_WS_EMC3501        (0x0000009D)
-#define BOOTROM_FLASH_LOAD_EMC3501      (0x000000E5)
-#define BOOTROM_FLASH_STORE_EMC3501     (0x000000FD)
+#define BOOTROM_FLASH_WS_ECM3501        (0x0000009D)
+#define BOOTROM_FLASH_LOAD_ECM3501      (0x000000E5)
+#define BOOTROM_FLASH_STORE_ECM3501     (0x000000FD)
 #define BOOTROM_FLASH_ERASE_ECM3501     (0x00000385)
 #define BOOTROM_FLASH_PROGRAM_ECM3501   (0x000004C9)
 #define BOOTROM_FLASH_ERASE_FPGA        (0x00000249)
@@ -141,6 +137,10 @@ extern "C" {
 #define CHECK_FLASH_PROGRAM_FPGA        (0x00b089b4)
 #define CHECK_FLASH_ERASE_ECM3501       (0x00b086b5)
 #define CHECK_FLASH_PROGRAM_ECM3501     (0x00b086b5)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
  * BootROM entry point typedefs.
@@ -178,7 +178,7 @@ typedef struct {
 	uint32_t bootrom_entry_point;
 	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta, 3-3531 fpga. */
 	uint32_t retval;
-} eta_write_interface;
+} eta_write_interface_T;
 
 /** SRAM parameters for erase. */
 typedef struct {
@@ -188,7 +188,7 @@ typedef struct {
 	uint32_t bootrom_entry_point;
 	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta, 3-3531 fpga. */
 	uint32_t retval;
-} eta_erase_interface;
+} eta_erase_interface_T;
 
 /** SRAM parameters for read. */
 typedef struct {
@@ -199,7 +199,25 @@ typedef struct {
 	uint32_t bootrom_entry_point;
 	int32_t bootrom_version;	/**< 0-chip, 1-fpga, 2-m3eta, 3-3531 fpga. */
 	uint32_t retval;
-} eta_read_interface;
+} eta_read_interface_T;
+
+/** SRAM parameters for load and store. */
+typedef struct {
+	uint32_t flash_address;
+	uint32_t sram_buffer;
+	uint32_t bootrom_entry_point;
+	uint32_t retval;
+} eta_loadstore_interface_T;
+
+/*
+ * Function call wrappers.
+ */
+
+#define ETA_CSP_FLASH_LOAD(ADDR) \
+	BootROM_ui32LoadHelper(ADDR);
+
+#define ETA_CSP_FLASH_STORE(ADDR, VALUE) \
+	BootROM_ui32StoreHelper(ADDR, VALUE);
 
 /*
  * Function call wrappers include additional flash timing parameters.

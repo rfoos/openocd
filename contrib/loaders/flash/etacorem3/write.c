@@ -46,12 +46,12 @@ BootROM_flash_program_space_T BootROM_flash_program_space;
  */
 int main(uint32_t sram_param_start)
 {
-	eta_write_interface *flash_interface;
+	eta_write_interface_T *flash_interface;
 
 	if (sram_param_start == 0)
-		flash_interface = (eta_write_interface *) SRAM_PARAM_START;
+		flash_interface = (eta_write_interface_T *) SRAM_PARAM_START;
 	else
-		flash_interface = (eta_write_interface *) sram_param_start;
+		flash_interface = (eta_write_interface_T *) sram_param_start;
 #else
 /**
  * Write up to a sector to flash.
@@ -60,8 +60,8 @@ int main(uint32_t sram_param_start)
  */
 int main(void)
 {
-	eta_write_interface *flash_interface = \
-		(eta_write_interface *) SRAM_PARAM_START;
+	eta_write_interface_T *flash_interface = \
+		(eta_write_interface_T *) SRAM_PARAM_START;
 #endif
 
 	uint32_t flash_address = flash_interface->flash_address;
