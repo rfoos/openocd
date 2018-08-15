@@ -287,6 +287,9 @@ struct dap_ops {
 	 * sticky error conditions */
 	int (*sync)(struct adiv5_dap *dap);
 
+	/** powerdown operation for SWD */
+	int (*powerdown)(struct adiv5_dap *dap);
+
 	/** Optional; called at OpenOCD exit */
 	void (*quit)(struct adiv5_dap *dap);
 };
@@ -488,6 +491,7 @@ int mem_ap_write_buf_noincr(struct adiv5_ap *ap,
 /* Initialisation of the debug system, power domains and registers */
 int dap_dp_init(struct adiv5_dap *dap);
 int mem_ap_init(struct adiv5_ap *ap);
+int dap_dp_powerdown(struct adiv5_dap *dap);
 
 /* Invalidate cached DP select and cached TAR and CSW of all APs */
 void dap_invalidate_cache(struct adiv5_dap *dap);

@@ -129,6 +129,38 @@ static int dap_init_all(void)
 	return ERROR_OK;
 }
 
+static int dap_powerdown_all(void)
+{
+	struct arm_dap_object *obj = NULL, *tmp = NULL;
+	struct adiv5_dap *dap;
+	int retval = ERROR_OK;
+	LOG_DEBUG("*** Enter");
+	list_for_each_entry_safe(obj, tmp, &all_dap, lh) {
+		dap = &obj->dap;
+		LOG_DEBUG("*** PowerdownLOOP: %s", adiv5_dap_name(dap));
+
+		/* with hla, dap is just a dummy */
+		if (transport_is_hla())
+			continue;
+		LOG_DEBUG("*** PowerdownLOOP NOT HLA");
+
+		/* skip taps that are disabled */
+		if (!dap->tap->enabled)
+			continue;
+		LOG_DEBUG("*** PowerdownLOOP Enabled 0x%lx, 0x%lx",
+			(uintptr_t)dap->ops,
+			(uintptr_t)dap->ops->powerdown);
+
+		if (dap->ops && dap->ops->powerdown)
+			retval = dap->ops->powerdown(dap);
+		if (retval != ERROR_OK)
+			LOG_ERROR("Error in Powerdown");
+	}
+
+	return ERROR_OK;
+}
+
+
 int dap_cleanup_all(void)
 {
 	struct arm_dap_object *obj, *tmp;
@@ -173,24 +205,26 @@ static int dap_configure(Jim_GetOptInfo *goi, struct arm_dap_object *dap)
 			return e;
 		}
 		switch (n->value) {
-		case CFG_CHAIN_POSITION: {
-			Jim_Obj *o_t;
-			e = Jim_GetOpt_Obj(goi, &o_t);
-			if (e != JIM_OK)
-				return e;
-			tap = jtag_tap_by_jim_obj(goi->interp, o_t);
-			if (tap == NULL) {
-				Jim_SetResultString(goi->interp, "-chain-position is invalid", -1);
-				return JIM_ERR;
+			case CFG_CHAIN_POSITION: {
+				Jim_Obj *o_t;
+				e = Jim_GetOpt_Obj(goi, &o_t);
+				if (e != JIM_OK)
+					return e;
+				tap = jtag_tap_by_jim_obj(goi->interp, o_t);
+				if (tap == NULL) {
+					Jim_SetResultString(goi->interp,
+						"-chain-position is invalid",
+						-1);
+					return JIM_ERR;
+				}
+				/* loop for more */
+				break;
 			}
-			/* loop for more */
-			break;
-		}
-		case CFG_IGNORE_SYSPWRUPACK:
-			dap->dap.ignore_syspwrupack = true;
-			break;
-		default:
-			break;
+			case CFG_IGNORE_SYSPWRUPACK:
+				dap->dap.ignore_syspwrupack = true;
+				break;
+			default:
+				break;
 		}
 	}
 
@@ -306,6 +340,11 @@ COMMAND_HANDLER(handle_dap_init)
 	return dap_init_all();
 }
 
+COMMAND_HANDLER(handle_dap_powerdown)
+{
+	return dap_powerdown_all();
+}
+
 COMMAND_HANDLER(handle_dap_info_command)
 {
 	struct target *target = get_current_target(CMD_CTX);
@@ -352,11 +391,18 @@ static const struct command_registration dap_subcommand_handlers[] = {
 		.help = "Initialize all registered DAP instances"
 	},
 	{
+		.name = "powerdown",
+		.mode = COMMAND_ANY,
+		.handler = handle_dap_powerdown,
+		.usage = "",
+		.help = "Powerdown all registered DAP instances"
+	},
+	{
 		.name = "info",
 		.handler = handle_dap_info_command,
 		.mode = COMMAND_EXEC,
 		.help = "display ROM table for MEM-AP of current target "
-		"(default currently selected AP)",
+			"(default currently selected AP)",
 		.usage = "[ap_num]",
 	},
 	COMMAND_REGISTRATION_DONE

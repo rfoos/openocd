@@ -711,6 +711,77 @@ int dap_dp_init(struct adiv5_dap *dap)
 }
 
 /**
+ * Power down a DAP.  This shuts down the domains for low power state.
+ *
+ * @param dap The DAP being initialized.
+ */
+int dap_dp_powerdown(struct adiv5_dap *dap)
+{
+	int retval;
+
+	LOG_DEBUG("POWERDOWN %s", adiv5_dap_name(dap));
+
+	dap_invalidate_cache(dap);
+#if 0
+	for (size_t i = 0; i < 30; i++) {
+		/* DP initialization */
+
+		retval = dap_dp_read_atomic(dap, DP_CTRL_STAT, NULL);
+		if (retval == ERROR_OK)
+			break;
+	}
+#endif
+
+	retval = dap_queue_dp_write(dap, DP_CTRL_STAT, SSTICKYERR);
+	if (retval != ERROR_OK)
+		return retval;
+
+	retval = dap_queue_dp_read(dap, DP_CTRL_STAT, NULL);
+	if (retval != ERROR_OK)
+		return retval;
+	dap->dp_ctrl_stat &= ~(CDBGPWRUPREQ | CSYSPWRUPREQ);
+	retval = dap_queue_dp_write(dap, DP_CTRL_STAT, dap->dp_ctrl_stat);
+	if (retval != ERROR_OK)
+		return retval;
+
+	/* Check that we have debug power domains de-activated */
+	LOG_DEBUG("DAP: wait CDBGPWRUPACK Off");
+	retval = dap_dp_poll_register(dap, DP_CTRL_STAT,
+				      CDBGPWRUPACK, CDBGPWRUPACK,
+				      DAP_POWER_DOMAIN_TIMEOUT);
+	if (retval != ERROR_OK)
+		return retval;
+
+	if (!dap->ignore_syspwrupack) {
+		LOG_DEBUG("DAP: wait CSYSPWRUPACK Off");
+		retval = dap_dp_poll_register(dap, DP_CTRL_STAT,
+					      CSYSPWRUPACK, CSYSPWRUPACK,
+					      DAP_POWER_DOMAIN_TIMEOUT);
+		if (retval != ERROR_OK)
+			return retval;
+	}
+
+	retval = dap_queue_dp_read(dap, DP_CTRL_STAT, NULL);
+	if (retval != ERROR_OK)
+		return retval;
+#if 0
+	/* With debug power on we can activate OVERRUN checking */
+	dap->dp_ctrl_stat = CDBGPWRUPREQ | CSYSPWRUPREQ | CORUNDETECT;
+	retval = dap_queue_dp_write(dap, DP_CTRL_STAT, dap->dp_ctrl_stat);
+	if (retval != ERROR_OK)
+		return retval;
+	retval = dap_queue_dp_read(dap, DP_CTRL_STAT, NULL);
+	if (retval != ERROR_OK)
+		return retval;
+
+	retval = dap_run(dap);
+	if (retval != ERROR_OK)
+		return retval;
+#endif
+	return retval;
+}
+
+/**
  * Initialize a DAP.  This sets up the power domains, prepares the DP
  * for further use, and arranges to use AP #0 for all AP operations
  * until dap_ap-select() changes that policy.

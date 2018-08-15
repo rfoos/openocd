@@ -65,9 +65,9 @@ static void swd_finish_read(struct adiv5_dap *dap)
 }
 
 static int swd_queue_dp_write(struct adiv5_dap *dap, unsigned reg,
-		uint32_t data);
+	uint32_t data);
 static int swd_queue_dp_read(struct adiv5_dap *dap, unsigned reg,
-		uint32_t *data);
+	uint32_t *data);
 
 static void swd_clear_sticky_errors(struct adiv5_dap *dap)
 {
@@ -142,6 +142,55 @@ static int swd_connect(struct adiv5_dap *dap)
 	return status;
 }
 
+static int swd_powerdown(struct adiv5_dap *dap)
+{
+	const struct swd_driver *swd = adiv5_dap_swd_driver(dap);
+	uint32_t dpidr;
+	int status;
+
+	/* FIXME validate transport config ... is the
+	 * configured DAP present (check IDCODE)?
+	 * Is *only* one DAP configured?
+	 *
+	 * MUST READ DPIDR
+	 */
+#if 0
+	/* Check if we should reset srst already when connecting, but not if reconnecting. */
+	if (!dap->do_reconnect) {
+		enum reset_types jtag_reset_config = jtag_get_reset_config();
+
+		if (jtag_reset_config & RESET_CNCT_UNDER_SRST) {
+			if (jtag_reset_config & RESET_SRST_NO_GATING)
+				swd_add_reset(1);
+			else
+				LOG_WARNING("\'srst_nogate\' reset_config option is required");
+		}
+	}
+#endif
+	/* Note, debugport_init() does setup too */
+	swd->switch_seq(JTAG_TO_SWD);
+
+	/* Clear link state, including the SELECT cache. */
+	dap->do_reconnect = false;
+	dap_invalidate_cache(dap);
+
+	swd_queue_dp_read(dap, DP_DPIDR, &dpidr);
+
+	/* force clear all sticky faults */
+	swd_clear_sticky_errors(dap);
+
+	status = swd_run_inner(dap);
+
+	if (status == ERROR_OK) {
+		LOG_INFO("SWD DPIDR %#8.8" PRIx32, dpidr);
+		dap->do_reconnect = false;
+		status = dap_dp_powerdown(dap);
+	} else
+		dap->do_reconnect = true;
+
+	return status;
+}
+
 static inline int check_sync(struct adiv5_dap *dap)
 {
 	return do_sync ? swd_run_inner(dap) : ERROR_OK;
@@ -174,7 +223,7 @@ static void swd_queue_dp_bankselect(struct adiv5_dap *dap, unsigned reg)
 
 	uint32_t select_dp_bank = (reg & 0x000000F0) >> 4;
 	uint32_t sel = select_dp_bank
-			| (dap->select & (DP_SELECT_APSEL | DP_SELECT_APBANK));
+		| (dap->select & (DP_SELECT_APSEL | DP_SELECT_APBANK));
 
 	if (sel == dap->select)
 		return;
@@ -185,7 +234,7 @@ static void swd_queue_dp_bankselect(struct adiv5_dap *dap, unsigned reg)
 }
 
 static int swd_queue_dp_read(struct adiv5_dap *dap, unsigned reg,
-		uint32_t *data)
+	uint32_t *data)
 {
 	const struct swd_driver *swd = adiv5_dap_swd_driver(dap);
 	assert(swd);
@@ -201,7 +250,7 @@ static int swd_queue_dp_read(struct adiv5_dap *dap, unsigned reg,
 }
 
 static int swd_queue_dp_write(struct adiv5_dap *dap, unsigned reg,
-		uint32_t data)
+	uint32_t data)
 {
 	const struct swd_driver *swd = adiv5_dap_swd_driver(dap);
 	assert(swd);
@@ -222,8 +271,8 @@ static void swd_queue_ap_bankselect(struct adiv5_ap *ap, unsigned reg)
 {
 	struct adiv5_dap *dap = ap->dap;
 	uint32_t sel = ((uint32_t)ap->ap_num << 24)
-			| (reg & 0x000000F0)
-			| (dap->select & DP_SELECT_DPBANK);
+		| (reg & 0x000000F0)
+		| (dap->select & DP_SELECT_DPBANK);
 
 	if (sel == dap->select)
 		return;
@@ -234,7 +283,7 @@ static void swd_queue_ap_bankselect(struct adiv5_ap *ap, unsigned reg)
 }
 
 static int swd_queue_ap_read(struct adiv5_ap *ap, unsigned reg,
-		uint32_t *data)
+	uint32_t *data)
 {
 	struct adiv5_dap *dap = ap->dap;
 	const struct swd_driver *swd = adiv5_dap_swd_driver(dap);
@@ -252,7 +301,7 @@ static int swd_queue_ap_read(struct adiv5_ap *ap, unsigned reg,
 }
 
 static int swd_queue_ap_write(struct adiv5_ap *ap, unsigned reg,
-		uint32_t data)
+	uint32_t data)
 {
 	struct adiv5_dap *dap = ap->dap;
 	const struct swd_driver *swd = adiv5_dap_swd_driver(dap);
@@ -294,6 +343,7 @@ const struct dap_ops swd_dap_ops = {
 	.queue_ap_write = swd_queue_ap_write,
 	.queue_ap_abort = swd_queue_ap_abort,
 	.run = swd_run,
+	.powerdown = swd_powerdown,
 	.quit = swd_quit,
 };
 
@@ -351,7 +401,7 @@ int dap_to_swd(struct target *target)
 	 * subsystem if the link may not be in JTAG mode...
 	 */
 
-	retval =  jtag_add_tms_seq(8 * sizeof(jtag2swd_bitseq),
+	retval = jtag_add_tms_seq(8 * sizeof(jtag2swd_bitseq),
 			jtag2swd_bitseq, TAP_INVALID);
 	if (retval == ERROR_OK)
 		retval = jtag_execute_queue();
@@ -400,9 +450,9 @@ static int swd_select(struct command_context *ctx)
 	if (retval != ERROR_OK)
 		return retval;
 
-	 /* be sure driver is in SWD mode; start
-	  * with hardware default TRN (1), it can be changed later
-	  */
+	/* be sure driver is in SWD mode; start
+	 * with hardware default TRN (1), it can be changed later
+	 */
 	if (!swd || !swd->read_reg || !swd->write_reg || !swd->init) {
 		LOG_DEBUG("no SWD driver?");
 		return ERROR_FAIL;

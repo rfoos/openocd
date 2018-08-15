@@ -607,6 +607,12 @@ static int jtag_connect(struct adiv5_dap *dap)
 	return dap_dp_init(dap);
 }
 
+static int jtag_powerdown(struct adiv5_dap *dap)
+{
+	dap->do_reconnect = false;
+	return dap_dp_powerdown(dap);
+}
+
 static int jtag_check_reconnect(struct adiv5_dap *dap)
 {
 	if (dap->do_reconnect)
@@ -725,6 +731,7 @@ const struct dap_ops jtag_dp_ops = {
 	.queue_ap_abort      = jtag_ap_q_abort,
 	.run                 = jtag_dp_run,
 	.sync                = jtag_dp_sync,
+	.powerdown           = jtag_powerdown,
 };
 
 
