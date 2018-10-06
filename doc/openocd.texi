@@ -2114,6 +2114,7 @@ In such cases, just specify the relevant port number as "disabled".
 If you disable all access through TCP/IP, you will need to
 use the command line @option{-pipe} option.
 
+@anchor{gdb_port}
 @deffn {Command} gdb_port [number]
 @cindex GDB server
 Normally gdb listens to a TCP/IP port, but GDB can also
@@ -2139,11 +2140,15 @@ The GDB port for the first target will be the base port, the
 second target will listen on gdb_port + 1, and so on.
 When not specified during the configuration stage,
 the port @var{number} defaults to 3333.
+When @var{number} is not a numeric value, incrementing it to compute
+the next port number does not work. In this case, specify the proper
+@var{number} for each target by using the option @code{-gdb-port} of the
+commands @command{target create} or @command{$target_name configure}.
+@xref{gdbportoverride,,option -gdb-port}.
 
 Note: when using "gdb_port pipe", increasing the default remote timeout in
 gdb (with 'set remotetimeout') is recommended. An insufficient timeout may
 cause initialization to fail with "Unknown remote qXfer reply: OK".
-
 @end deffn
 
 @deffn {Command} tcl_port [number]
@@ -4458,6 +4463,13 @@ to the target. Currently, only the @code{aarch64} target makes use of this optio
 where it is a mandatory configuration for the target run control.
 @xref{armcrosstrigger,,ARM Cross-Trigger Interface},
 for instruction on how to declare and control a CTI instance.
+
+@anchor{gdbportoverride}
+@item @code{-gdb-port} @var{number} -- see command @command{gdb_port} for the
+possible values of the parameter @var{number}, which are not only numeric values.
+Use this option to override, for this target only, the global parameter set with
+command @command{gdb_port}.
+@xref{gdb_port,,command gdb_port}.
 @end itemize
 @end deffn
 
@@ -6613,6 +6625,42 @@ The @var{num} parameter is a value shown by @command{flash banks}.
 
 @deffn Command {stm32l4x mass_erase} num
 Mass erases the entire stm32l4x device.
+The @var{num} parameter is a value shown by @command{flash banks}.
+@end deffn
+
+@deffn Command {stm32l4x option_read} num reg_offset
+Reads an option byte register from the stm32l4x device.
+The @var{num} parameter is a value shown by @command{flash banks}, @var{reg_offset}
+is the register offset of the Option byte to read.
+
+For example to read the FLASH_OPTR register:
+@example
+stm32l4x option_read 0 0x20
+# Option Register: <0x40022020> = 0xffeff8aa
+@end example
+
+The above example will read out the FLASH_OPTR register which contains the RDP
+option byte, Watchdog configuration, BOR level etc.
+@end deffn
+
+@deffn Command {stm32l4x option_write} num reg_offset reg_mask
+Write an option byte register of the stm32l4x device.
+The @var{num} parameter is a value shown by @command{flash banks}, @var{reg_offset}
+is the register offset of the Option byte to write, and @var{reg_mask} is the mask
+to apply when writing the register (only bits with a '1' will be touched).
+
+For example to write the WRP1AR option bytes:
+@example
+stm32l4x option_write 0 0x28 0x00FF0000 0x00FF00FF
+@end example
+
+The above example will write the WRP1AR option register configuring the Write protection
+Area A for bank 1. The above example set WRP1AR_END=255, WRP1AR_START=0.
+This will effectively write protect all sectors in flash bank 1.
+@end deffn
+
+@deffn Command {stm32l4x option_load} num
+Forces a re-load of the option byte registers. Will cause a reset of the device.
 The @var{num} parameter is a value shown by @command{flash banks}.
 @end deffn
 @end deffn
@@ -8808,7 +8856,7 @@ baud with our custom divisor to get 12MHz)
 @item @code{itmdump -f /dev/ttyUSB1 -d1}
 @item OpenOCD invocation line:
 @example
-openocd -f interface/stlink-v2-1.cfg \
+openocd -f interface/stlink.cfg \
         -c "transport select hla_swd" \
         -f target/stm32l1.cfg \
         -c "tpiu config external uart off 24000000 12000000"
@@ -9005,8 +9053,11 @@ Display all registers in @emph{group}.
 @section RISC-V Architecture
 
 @uref{http://riscv.org/, RISC-V} is a free and open ISA. OpenOCD supports JTAG
-debug of targets that implement version 0.11 and 0.13 of the RISC-V Debug
-Specification.
+debug of RV32 and RV64 cores in heterogeneous multicore systems of up to 32
+harts. (It's possible to increase this limit to 1024 by changing
+RISCV_MAX_HARTS in riscv.h.) OpenOCD primarily supports 0.13 of the RISC-V
+Debug Specification, but there is also support for legacy targets that
+implement version 0.11.
 
 @subsection RISC-V Terminology
 

@@ -206,6 +206,8 @@ struct target {
 	/* file-I/O information for host to do syscall */
 	struct gdb_fileio_info *fileio_info;
 
+	char *gdb_port_override;			/* target-specific override for gdb_port */
+
 	/* The semihosting information, extracted from the target. */
 	struct semihosting *semihosting;
 };
@@ -478,6 +480,13 @@ int target_hit_watchpoint(struct target *target,
 int target_get_gdb_reg_list(struct target *target,
 		struct reg **reg_list[], int *reg_list_size,
 		enum target_register_class reg_class);
+
+/**
+ * Check if @a target allows GDB connections.
+ *
+ * Some target do not implement the necessary code required by GDB.
+ */
+bool target_supports_gdb_connection(struct target *target);
 
 /**
  * Step the target.
