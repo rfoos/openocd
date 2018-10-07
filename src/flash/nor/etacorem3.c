@@ -1531,7 +1531,6 @@ static int etacorem3_read_buffer(struct flash_bank *bank, target_addr_t address,
 				retval,
 				retval1,
 				retvalT);
-			LOG_DEBUG("address: 0x%08lX, count: 0x%08X", address, thisrun_count);
 			retval = ERROR_FLASH_OPERATION_FAILED;
 			goto err_run;
 		}

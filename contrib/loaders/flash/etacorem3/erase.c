@@ -105,11 +105,10 @@ int main(void)
 	/* mass_erase, info erase, or multiple page erase. */
 	if ((flash_interface->options & 0x1) == 1) {
 		flash_interface->retval = 5;
-		if (bootrom_version == BOOTROM_VERSION_ECM3531) {
+		if (bootrom_version == BOOTROM_VERSION_ECM3531)
 			ETA_CSP_FLASH_MASS_ERASE_SPACE(space_option);
-		} else {
+		else
 			ETA_CSP_FLASH_MASS_ERASE();
-		}
 	} else if ((bootrom_version == BOOTROM_VERSION_ECM3531) && \
 		(space_option)) {
 		flash_interface->retval = 6;
@@ -120,11 +119,10 @@ int main(void)
 			uint32_t erase_address;
 			erase_address = (flash_address & ETA_COMMON_FLASH_PAGE_ADDR_MASK);
 			/* is ECM3531, is info? */
-			if (bootrom_version == BOOTROM_VERSION_ECM3531) {
+			if (bootrom_version == BOOTROM_VERSION_ECM3531)
 				ETA_CSP_FLASH_PAGE_ERASE(erase_address);
-			} else {
+			else
 				ETA_CSP_FLASH_PAGE_ERASE_SPACE(erase_address, space_option);
-			}
 			flash_address += ETA_COMMON_FLASH_PAGE_SIZE;
 		}
 	}
